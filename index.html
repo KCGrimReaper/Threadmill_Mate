@@ -437,7 +437,7 @@ $('gpxFile').onchange = async (e)=>{
     let dplus=0; for(let i=1;i<pts.length;i++){ const dz=pts[i].ele-pts[i-1].ele; if(dz>0) dplus+=dz; }
     const sess={ id:'g'+Date.now(), type:'gpx', name:file.name.replace(/\.gpx$/i,''), hasTime, totalDist:Math.round(totalDist), totalDplus:Math.round(dplus), segs };
     const arr=loadSessions(); arr.push(sess); persist(arr);
-    $('gpxMsg').style.color='var(--go)'; $('gpxMsg').textContent='Importé : '+(totalDist/1000).toFixed(2)+' km, '+Math.round(dplus)+' m D+, '+segs.length+' tronçons'+(hasTime?'':' (sans allure)');
+    $('gpxMsg').style.color='var(--go)'; $('gpxMsg').textContent='Importé : '+(totalDist/1000).toFixed(2)+' km, '+Math.round(dplus)+' m D+, '+segs.length+' tronçons'+(hasTime?'':' · profil d\'altitude seul (allure non incluse dans le fichier)');
     renderSessList();
   }catch(err){ $('gpxMsg').style.color='var(--stop)'; $('gpxMsg').textContent='Erreur : '+err.message; }
   e.target.value='';
