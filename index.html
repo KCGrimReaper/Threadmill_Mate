@@ -111,6 +111,7 @@
         <button id="spdPlus" class="step" disabled>+</button></div></div>
     <div class="acts"><button id="start" class="go" disabled>Démarrer</button>
       <button id="stop" class="stopb" disabled>Arrêter</button></div>
+    <button id="exportBtn" class="cta ghost" onclick="exportTcx()" disabled style="margin-bottom:8px">Exporter la course (TCX)</button>
     <p class="muted">La courroie se lance au bouton physique du tapis (démarrage à distance verrouillé). L'app pilote allure et pente.</p>
   </div>
 
@@ -186,6 +187,7 @@ const GPX_SEG=50; // longueur de lissage du profil, en mètres
 let device=null, controlChar=null, hrDevice=null, wakeLock=null;
 let elapsedMs=0, lastTick=null, timerId=null, curSpeed=0, curGrade=0;
 let distanceM=0, dPlusM=0, lastDataTs=null;
+let curHr=0, rec=[], recTimer=null;
 let spdTarget=2.0, inclTarget=1.0, spdMin=1, spdMax=18, spdUi=0.1, inclMin=0, inclMax=15, inclUi=1;
 
 const $=id=>document.getElementById(id);
@@ -217,7 +219,7 @@ $('connect').onclick = async () => {
     controlChar = await svc.getCharacteristic(CONTROL);
     await controlChar.startNotifications(); controlChar.addEventListener('characteristicvaluechanged', e=>parseControlResponse(e.target.value));
     await readRanges(svc); await sendControl([0x00],"Request Control");
-    setConnected(true); refreshTargets(); resetCounters(); startTimer(); acquireWakeLock();
+    setConnected(true); refreshTargets(); resetCounters(); startTimer(); startRecorder(); acquireWakeLock();
   }catch(err){ log("ERR "+err,'rx-err'); }
 };
 $('disconnect').onclick = ()=>{ if(device&&device.gatt.connected) device.gatt.disconnect(); };
@@ -232,7 +234,44 @@ async function readRanges(svc){
   }catch(e){}
   refreshTargets();
 }
-function resetCounters(){ distanceM=0; dPlusM=0; lastDataTs=null; $('distance').textContent='0'; $('dplus').textContent='0'; }
+function resetCounters(){ distanceM=0; dPlusM=0; lastDataTs=null; rec=[]; $('distance').textContent='0'; $('dplus').textContent='0'; if($('exportBtn')) $('exportBtn').disabled=true; }
+function startRecorder(){ if(recTimer) clearInterval(recTimer); recTimer=setInterval(()=>{
+  if(curSpeed>0){ rec.push({ t:new Date().toISOString(), dist:distanceM, spd:curSpeed, alt:dPlusM, hr:curHr }); if($('exportBtn')) $('exportBtn').disabled=false; }
+}, 1000); }
+
+// ---- Export TCX ----
+function buildTcx(samples){
+  if(samples.length<2) return null;
+  const start=samples[0].t, total=(new Date(samples[samples.length-1].t)-new Date(start))/1000;
+  const totalDist=samples[samples.length-1].dist;
+  let pts='';
+  for(const s of samples){
+    pts+='<Trackpoint><Time>'+s.t+'</Time>'
+       +'<DistanceMeters>'+s.dist.toFixed(1)+'</DistanceMeters>'
+       +'<AltitudeMeters>'+s.alt.toFixed(1)+'</AltitudeMeters>'
+       +(s.hr>0?'<HeartRateBpm><Value>'+Math.round(s.hr)+'</Value></HeartRateBpm>':'')
+       +'<Extensions><ns3:TPX><ns3:Speed>'+(s.spd/3.6).toFixed(2)+'</ns3:Speed></ns3:TPX></Extensions>'
+       +'</Trackpoint>';
+  }
+  return '<?xml version="1.0" encoding="UTF-8"?>\n'
+   +'<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2" xmlns:ns3="http://www.garmin.com/xmlschemas/ActivityExtension/v2">'
+   +'<Activities><Activity Sport="Running"><Id>'+start+'</Id>'
+   +'<Lap StartTime="'+start+'"><TotalTimeSeconds>'+total.toFixed(0)+'</TotalTimeSeconds>'
+   +'<DistanceMeters>'+totalDist.toFixed(1)+'</DistanceMeters><Calories>0</Calories>'
+   +'<Intensity>Active</Intensity><TriggerMethod>Manual</TriggerMethod><Track>'+pts+'</Track></Lap>'
+   +'<Creator xsi:type="Device_t" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><Name>Threadmill Mate</Name></Creator>'
+   +'</Activity></Activities></TrainingCenterDatabase>';
+}
+function exportTcx(){
+  const xml=buildTcx(rec);
+  if(!xml){ log("Rien à exporter (pas encore de données de course).",'rx-err'); return; }
+  const d=new Date(), pad=n=>String(n).padStart(2,'0');
+  const fname='threadmill-'+d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+'-'+pad(d.getHours())+pad(d.getMinutes())+'.tcx';
+  const blob=new Blob([xml],{type:'application/vnd.garmin.tcx+xml'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fname; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+  log("Export TCX : "+fname+" ("+rec.length+" points)",'rx-ok');
+}
 function startTimer(){ elapsedMs=0; lastTick=performance.now(); if(timerId) clearInterval(timerId); timerId=setInterval(tick,500); tick(); }
 function stopTimer(){ if(timerId){ clearInterval(timerId); timerId=null; } }
 function tick(){ const now=performance.now(); if(lastTick!=null && curSpeed>0) elapsedMs+=now-lastTick; lastTick=now; $('time').textContent=fmt(elapsedMs/1000); }
@@ -249,7 +288,7 @@ $('pairHr').onclick = async () => {
     const ch=await (await s.getPrimaryService(HR_SVC)).getCharacteristic(HR_MEAS);
     await ch.startNotifications();
     ch.addEventListener('characteristicvaluechanged', e=>{ const dv=e.target.value,f=dv.getUint8(0);
-      const v=(f&1)?dv.getUint16(1,true):dv.getUint8(1); $('hr').textContent=v; $('pHr').textContent=v; });
+      const v=(f&1)?dv.getUint16(1,true):dv.getUint8(1); curHr=v; $('hr').textContent=v; $('pHr').textContent=v; });
     log("FC : "+(hrDevice.name||"(sans nom)")+" connectée",'hrlog');
   }catch(err){ log("FC : "+err.message,'rx-err'); }
 };
@@ -304,6 +343,10 @@ function loadSessions(){ try{ return JSON.parse(localStorage.getItem('tm_session
 function persist(arr){ localStorage.setItem('tm_sessions', JSON.stringify(arr)); }
 function sessionTotals(segs){ let d=0,dist=0,dp=0; segs.forEach(s=>{ d+=s.dur; const m=(s.spd/3.6)*s.dur; dist+=m; if(s.inc>0) dp+=m*(s.inc/100); }); return {dur:d,dist:Math.round(dist),dp:Math.round(dp)}; }
 
+let confirmDel=null;
+function askDelete(id){ confirmDel=id; renderSessList(); }
+function cancelDelete(){ confirmDel=null; renderSessList(); }
+function doDelete(id){ persist(loadSessions().filter(x=>x.id!==id)); confirmDel=null; renderSessList(); }
 function renderSessList(){
   const arr=loadSessions(); const el=$('sessList');
   if(!arr.length){ el.innerHTML='<p class="muted">Aucune séance. Crée une séance à intervalles ou importe un GPX.</p>'; return; }
@@ -311,9 +354,18 @@ function renderSessList(){
     let meta, tag;
     if(s.type==='gpx'){ tag='<span class="tag gpx">GPX</span>'; meta=(s.totalDist/1000).toFixed(2)+' km · '+s.totalDplus+' m D+'+(s.hasTime?' · allure dispo':''); }
     else { const t=sessionTotals(s.segments); tag='<span class="tag itv">INTERVALLES</span>'; meta=s.segments.length+' blocs · '+fmt(t.dur)+' · '+(t.dist/1000).toFixed(2)+' km · '+t.dp+' m D+'; }
-    const edit = s.type==='gpx' ? '' : '<button class="run" onclick="editSession(\''+s.id+'\')" style="background:var(--surface2);color:var(--text)">Éditer</button>';
+    let right;
+    if(confirmDel===s.id){
+      right='<span class="muted" style="margin-right:4px">Supprimer ?</span>'+
+        '<button class="run" onclick="doDelete(\''+s.id+'\')" style="background:var(--stop);color:#fff">Oui</button>'+
+        '<button class="run" onclick="cancelDelete()" style="background:var(--surface2);color:var(--text)">Non</button>';
+    } else {
+      const edit = s.type==='gpx' ? '' : '<button class="run" onclick="editSession(\''+s.id+'\')" style="background:var(--surface2);color:var(--text)">Éditer</button>';
+      right=edit+'<button class="run" onclick="launch(\''+s.id+'\')">Lancer</button>'+
+        '<button class="run" onclick="askDelete(\''+s.id+'\')" style="background:transparent;color:var(--stop);padding:10px 10px">🗑</button>';
+    }
     return '<div class="sesscard"><div><div class="t">'+escapeHtml(s.name)+tag+'</div><div class="m">'+meta+'</div></div>'+
-    '<div style="display:flex;gap:6px">'+edit+'<button class="run" onclick="launch(\''+s.id+'\')">Lancer</button></div></div>';
+    '<div style="display:flex;gap:6px;align-items:center;flex-shrink:0">'+right+'</div></div>';
   }).join('');
 }
 
