@@ -11,34 +11,31 @@
   :root{ --bg:#0f1319; --surface:#171d26; --surface2:#1f2732; --border:#2b3542;
     --text:#eef2f6; --muted:#8892a0; --accent:#ff8a3d; --go:#2fb872; --stop:#ef4b63; color-scheme:dark; }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-  body{ margin:0 auto; padding:16px 16px 28px; background:var(--bg); color:var(--text); font-family:Inter,system-ui,sans-serif; max-width:520px; }
+  body{ margin:0 auto; padding:16px 16px 40px; background:var(--bg); color:var(--text); font-family:Inter,system-ui,sans-serif; max-width:520px; }
   .top{ display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
-  .top .name{ font-size:13px; color:var(--muted); font-weight:600; }
+  .top .name{ font-size:13px; color:var(--muted); font-weight:500; }
   .chip{ display:inline-flex; align-items:center; gap:7px; font-size:12.5px; color:var(--muted); background:var(--surface); border:1px solid var(--border); padding:6px 11px; border-radius:999px; }
   .dot{ width:8px; height:8px; border-radius:50%; background:#4b5563; }
   .dot.on{ background:var(--go); box-shadow:0 0 0 3px rgba(47,184,114,.18); }
-  .setup{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; }
+  .setup{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
   .cta{ width:100%; border:none; border-radius:14px; padding:14px; font:600 14.5px Inter; cursor:pointer; background:var(--accent); color:#1a0d02; }
   .cta.ghost{ background:transparent; border:1px solid var(--border); color:var(--text); }
   .cta:disabled{ opacity:.4; }
-  .tabs{ display:flex; gap:6px; margin-bottom:14px; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:4px; }
-  .tabs button{ flex:1; padding:10px; border:none; border-radius:9px; background:transparent; color:var(--muted); font:600 13px Inter; cursor:pointer; }
-  .tabs button.active{ background:var(--surface2); color:var(--text); }
-  .view{ display:none; } .view.active{ display:block; }
-
-  .hero{ text-align:center; padding:8px 0 2px; }
+  .tabs{ display:grid; grid-template-columns:1fr 1fr; gap:6px; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:4px; margin-bottom:14px; }
+  .tabs button{ border:none; background:transparent; color:var(--muted); font:600 13.5px Inter; padding:9px; border-radius:9px; cursor:pointer; }
+  .tabs button.act{ background:var(--surface2); color:var(--text); }
+  .hero{ text-align:center; padding:10px 0 2px; }
   .hero .k{ font-size:12px; font-weight:500; color:var(--muted); }
   .hero .bar{ width:26px; height:3px; border-radius:2px; background:var(--accent); margin:5px auto 2px; }
-  .hero .v{ font-family:Teko; font-weight:600; font-size:104px; line-height:.8; font-variant-numeric:tabular-nums; }
+  .hero .v{ font-family:Teko; font-weight:600; font-size:104px; line-height:.8; letter-spacing:1px; font-variant-numeric:tabular-nums; }
   .hero .u{ font-size:13px; color:var(--muted); margin-top:2px; }
   .stats{ display:grid; grid-template-columns:repeat(4,1fr); background:var(--surface); border:1px solid var(--border); border-radius:14px; overflow:hidden; margin:12px 0 16px; }
   .stats .cell{ padding:11px 6px; text-align:center; } .stats .cell + .cell{ border-left:1px solid var(--border); }
   .stats .cl{ font-size:11px; color:var(--muted); margin-bottom:3px; }
   .stats .cv{ font-family:Teko; font-size:30px; line-height:.9; font-variant-numeric:tabular-nums; }
-
   .ctrl{ background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:13px 14px; margin-bottom:10px; }
   .ctrl .lab{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:10px; }
-  .ctrl .lab b{ font-size:14px; } .ctrl .lab span{ font-size:12px; color:var(--muted); }
+  .ctrl .lab b{ font-size:14px; font-weight:600; } .ctrl .lab span{ font-size:12px; color:var(--muted); }
   .ctrl .row{ display:flex; align-items:center; gap:12px; }
   .step{ width:64px; height:58px; border:none; border-radius:13px; background:var(--surface2); color:var(--accent); font:500 30px Inter; cursor:pointer; touch-action:none; user-select:none; }
   .step:active{ background:#28313d; } .step:disabled{ opacity:.35; }
@@ -51,129 +48,105 @@
   .acts button{ border:none; border-radius:14px; padding:16px; font:600 16px Inter; cursor:pointer; }
   .go{ background:var(--go); color:#04160c; } .stopb{ background:transparent; border:1px solid var(--stop); color:var(--stop); }
   .acts button:disabled{ opacity:.4; }
-
-  /* Séances */
-  .run{ background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:14px; margin-bottom:14px; }
-  .run .st{ font-size:12px; color:var(--muted); margin-bottom:8px; }
-  .run .cur{ display:flex; align-items:baseline; gap:10px; }
-  .run .cur .bk{ font-family:Teko; font-size:44px; line-height:.85; color:var(--accent); }
-  .run .cur .tg{ font-family:Teko; font-size:34px; line-height:.85; }
-  .run .rem{ margin-left:auto; font-family:Teko; font-size:40px; color:var(--text); }
-  .run .nx{ font-size:12px; color:var(--muted); margin:8px 0 10px; min-height:16px; }
-  .bar{ height:8px; background:var(--surface2); border-radius:4px; overflow:hidden; margin-bottom:12px; }
-  .bar > i{ display:block; height:100%; width:0%; background:var(--accent); transition:width .25s linear; }
-  .run .runacts{ display:grid; grid-template-columns:2fr 1fr 1fr; gap:8px; }
-  .run .runacts button{ border:none; border-radius:12px; padding:13px; font:600 14px Inter; cursor:pointer; }
-  .rlaunch{ background:var(--go); color:#04160c; } .rpause{ background:var(--surface2); color:var(--text); } .rstop{ background:transparent; border:1px solid var(--stop); color:var(--stop); }
-  .run .runacts button:disabled{ opacity:.4; }
-
-  .builder{ background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:14px; }
-  .builder h3{ font-size:13px; margin:0 0 10px; }
-  .nameinput{ width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:10px; color:var(--text); padding:10px 12px; font:500 14px Inter; margin-bottom:12px; }
-  .bhead,.block{ display:grid; grid-template-columns:22px 1fr 1fr 1fr 30px; gap:6px; align-items:center; }
-  .bhead{ font-size:10.5px; color:var(--muted); margin-bottom:5px; text-align:center; }
-  .block{ margin-bottom:6px; }
-  .block .bi{ color:var(--muted); font-size:12px; text-align:center; }
-  .block input{ width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:9px 4px; font:500 15px Inter; text-align:center; }
-  .block input:focus{ outline:none; border-color:var(--accent); }
-  .block .del{ background:transparent; border:none; color:var(--stop); font-size:20px; cursor:pointer; padding:0; }
-  .addb{ width:100%; margin-top:8px; background:var(--surface2); border:1px dashed var(--border); border-radius:10px; color:var(--text); padding:11px; font:600 13px Inter; cursor:pointer; }
-  .save{ display:grid; grid-template-columns:1fr auto; gap:8px; margin-top:12px; }
-  .save button{ border:none; border-radius:10px; padding:11px; font:600 13px Inter; cursor:pointer; background:var(--accent); color:#1a0d02; }
-  .save select{ background:var(--surface2); border:1px solid var(--border); color:var(--text); border-radius:10px; padding:0 10px; font:500 13px Inter; }
-
+  .sesscard{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:14px; margin-bottom:10px; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .sesscard .t{ font-weight:600; font-size:15px; } .sesscard .m{ font-size:12px; color:var(--muted); margin-top:3px; }
+  .sesscard .run{ border:none; background:var(--accent); color:#1a0d02; font:600 13px Inter; padding:10px 14px; border-radius:10px; cursor:pointer; }
+  .seg{ background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:11px 12px; margin-bottom:8px; }
+  .seg .sh{ display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+  .seg .sh b{ font-size:13px; } .seg .del{ border:none; background:transparent; color:var(--stop); font-size:18px; cursor:pointer; }
+  .seg .fields{ display:grid; grid-template-columns:1.3fr 1fr 1fr; gap:8px; }
+  .fld label{ display:block; font-size:10.5px; color:var(--muted); margin-bottom:3px; }
+  .fld input{ width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:9px 8px; font:500 15px Inter; font-variant-numeric:tabular-nums; }
+  .fld .dur{ display:flex; align-items:center; gap:4px; } .fld .dur input{ text-align:center; } .fld .dur span{ color:var(--muted); }
+  input.name{ width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:10px; color:var(--text); padding:12px; font:600 15px Inter; margin-bottom:12px; }
+  .pbig{ text-align:center; padding:6px 0; }
+  .pbig .lbl{ font-size:12px; color:var(--muted); } .pbig .tgt{ font-family:Teko; font-size:64px; line-height:.85; }
+  .prow{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:10px 0; }
+  .pbar{ height:8px; background:var(--surface2); border-radius:6px; overflow:hidden; margin:6px 0 2px; }
+  .pbar>i{ display:block; height:100%; background:var(--accent); width:0%; }
+  .muted{ color:var(--muted); font-size:12px; }
   details{ margin-top:14px; } summary{ color:var(--muted); font-size:12.5px; cursor:pointer; }
   #log{ font-family:ui-monospace,Menlo,monospace; font-size:11px; color:#9aa3ad; background:#0a0d11; border:1px solid var(--border); border-radius:10px; padding:10px; margin-top:8px; max-height:180px; overflow-y:auto; white-space:pre-wrap; }
   .rx-ok{ color:var(--go); } .rx-err{ color:var(--stop); } .tx{ color:#6aa8ff; } .hrlog{ color:#f79fbf; }
 </style>
 </head>
 <body>
-  <div class="top">
-    <span class="name">Threadmill Mate</span>
-    <span class="chip"><span id="dot" class="dot"></span><span id="chipTxt">Hors ligne</span></span>
-  </div>
+  <div class="top"><span class="name">Threadmill Mate</span>
+    <span class="chip"><span id="dot" class="dot"></span><span id="chipTxt">Hors ligne</span></span></div>
 
   <div class="setup">
-    <div>
-      <button id="connect" class="cta">Connecter le tapis</button>
-      <button id="disconnect" class="cta ghost" style="display:none">Déconnecter</button>
-    </div>
+    <div><button id="connect" class="cta">Connecter le tapis</button>
+      <button id="disconnect" class="cta ghost" style="display:none">Déconnecter</button></div>
     <button id="pairHr" class="cta ghost">Fréquence cardiaque</button>
   </div>
 
   <div class="tabs">
-    <button id="tabPilot" class="active">Pilotage</button>
-    <button id="tabSess">Séances</button>
+    <button id="tabDrive" class="act" onclick="showView('drive')">Pilotage</button>
+    <button id="tabSess" onclick="showView('sessions')">Séances</button>
   </div>
 
-  <!-- PILOTAGE -->
-  <div id="viewPilot" class="view active">
-    <div class="hero">
-      <div class="k">Vitesse</div><div class="bar" style="background:none"><div style="width:26px;height:3px;border-radius:2px;background:var(--accent);margin:5px auto 2px"></div></div>
-      <div class="v"><span id="speed">0.0</span></div><div class="u">km/h</div>
-    </div>
+  <!-- ===== PILOTAGE ===== -->
+  <div id="view-drive">
+    <div class="hero"><div class="k">Vitesse</div><div class="bar"></div>
+      <div class="v"><span id="speed">0.0</span></div><div class="u">km/h</div></div>
     <div class="stats">
       <div class="cell"><div class="cl">Distance</div><div class="cv"><span id="distance">0</span></div></div>
       <div class="cell"><div class="cl">D+</div><div class="cv"><span id="dplus">0</span></div></div>
       <div class="cell"><div class="cl">Temps</div><div class="cv"><span id="time">0:00</span></div></div>
       <div class="cell"><div class="cl">FC</div><div class="cv"><span id="hr">—</span></div></div>
     </div>
-    <div class="ctrl">
-      <div class="lab"><b>Montée</b><span id="incRange">0–15 %</span></div>
-      <div class="row">
-        <button id="incMinus" class="step" disabled>−</button>
+    <div class="ctrl"><div class="lab"><b>Montée</b><span id="incRange">0–15 %</span></div>
+      <div class="row"><button id="incMinus" class="step" disabled>−</button>
         <div class="valwrap"><input id="incInput" class="val" type="number" inputmode="decimal" step="1" value="1"><small>%</small></div>
-        <button id="incPlus" class="step" disabled>+</button>
-      </div>
-    </div>
-    <div class="ctrl">
-      <div class="lab"><b>Allure</b><span id="spdRange">1–18 km/h</span></div>
-      <div class="row">
-        <button id="spdMinus" class="step" disabled>−</button>
+        <button id="incPlus" class="step" disabled>+</button></div></div>
+    <div class="ctrl"><div class="lab"><b>Allure</b><span id="spdRange">1–18 km/h</span></div>
+      <div class="row"><button id="spdMinus" class="step" disabled>−</button>
         <div class="valwrap"><input id="spdInput" class="val" type="number" inputmode="decimal" step="0.1" value="2.0"><small>km/h</small></div>
-        <button id="spdPlus" class="step" disabled>+</button>
-      </div>
-    </div>
-    <div class="acts">
-      <button id="start" class="go" disabled>Démarrer</button>
-      <button id="stop" class="stopb" disabled>Arrêter</button>
-    </div>
-    <div id="statusLine" style="font-size:12px;color:var(--muted);margin-top:6px;min-height:16px"></div>
+        <button id="spdPlus" class="step" disabled>+</button></div></div>
+    <div class="acts"><button id="start" class="go" disabled>Démarrer</button>
+      <button id="stop" class="stopb" disabled>Arrêter</button></div>
+    <p class="muted">La courroie se lance au bouton physique du tapis (démarrage à distance verrouillé). L'app pilote allure et pente.</p>
   </div>
 
-  <!-- SÉANCES -->
-  <div id="viewSess" class="view">
-    <div class="run">
-      <div class="st" id="runState">Aucune séance en cours</div>
-      <div class="cur">
-        <span class="bk" id="runBlock">—</span>
-        <span class="tg" id="runTarget">—</span>
-        <span class="rem" id="runRem">0:00</span>
-      </div>
-      <div class="nx" id="runNext"></div>
-      <div class="bar"><i id="runProg"></i></div>
-      <div class="runacts">
-        <button id="runLaunch" class="rlaunch">Lancer la séance</button>
-        <button id="runPause" class="rpause" disabled>Pause</button>
-        <button id="runStop" class="rstop" disabled>Stop</button>
-      </div>
-    </div>
+  <!-- ===== SEANCES ===== -->
+  <div id="view-sessions" style="display:none">
+    <button class="cta" onclick="newSession()" style="margin-bottom:14px">+ Nouvelle séance</button>
+    <div id="sessList"></div>
+  </div>
 
-    <div class="builder">
-      <h3>Constructeur de séance</h3>
-      <input id="sessName" class="nameinput" placeholder="Nom de la séance" value="Ma séance">
-      <div class="bhead"><span></span><span>Durée (min)</span><span>Allure</span><span>Pente %</span><span></span></div>
-      <div id="blocks"></div>
-      <button id="addBlock" class="addb">+ Ajouter un bloc</button>
-      <div class="save">
-        <select id="savedList"><option value="">— Séances enregistrées —</option></select>
-        <button id="saveSess">Enregistrer</button>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
-        <button id="loadSess" class="cta ghost" style="padding:10px;font-size:13px">Charger</button>
-        <button id="delSess" class="cta ghost" style="padding:10px;font-size:13px;border-color:var(--stop);color:var(--stop)">Supprimer</button>
-      </div>
+  <!-- ===== BUILDER ===== -->
+  <div id="view-build" style="display:none">
+    <input id="sessName" class="name" placeholder="Nom de la séance (ex. 6×2min côte)">
+    <div id="segList"></div>
+    <button class="cta ghost" onclick="segAdd()" style="margin-bottom:10px">+ Ajouter un bloc</button>
+    <p id="buildTotals" class="muted"></p>
+    <div class="acts"><button class="go" onclick="saveSession()">Enregistrer</button>
+      <button class="stopb" onclick="showView('sessions')">Annuler</button></div>
+  </div>
+
+  <!-- ===== PLAYBACK ===== -->
+  <div id="view-play" style="display:none">
+    <div class="muted" id="playName" style="text-align:center;margin-bottom:6px"></div>
+    <div class="prow">
+      <div class="pbig"><div class="lbl">Allure cible</div><div class="tgt"><span id="pSpd">—</span><small style="font-size:16px;color:var(--muted)"> km/h</small></div></div>
+      <div class="pbig"><div class="lbl">Pente cible</div><div class="tgt"><span id="pInc">—</span><small style="font-size:16px;color:var(--muted)"> %</small></div></div>
     </div>
+    <div class="ctrl">
+      <div class="lab"><b id="pBlock">Bloc —</b><span id="pRem">—</span></div>
+      <div class="pbar"><i id="pSegBar"></i></div>
+      <div class="lab" style="margin:8px 0 0"><span class="muted">Séance</span><span id="pTot" class="muted">—</span></div>
+      <div class="pbar"><i id="pTotBar"></i></div>
+      <div class="muted" id="pNext" style="margin-top:8px"></div>
+    </div>
+    <div class="stats">
+      <div class="cell"><div class="cl">Vitesse</div><div class="cv"><span id="pActSpd">0.0</span></div></div>
+      <div class="cell"><div class="cl">Distance</div><div class="cv"><span id="pDist">0</span></div></div>
+      <div class="cell"><div class="cl">D+</div><div class="cv"><span id="pDplus">0</span></div></div>
+      <div class="cell"><div class="cl">FC</div><div class="cv"><span id="pHr">—</span></div></div>
+    </div>
+    <div class="acts"><button id="pPause" class="go" onclick="playPause()">Pause</button>
+      <button class="stopb" onclick="playStop(true)">Terminer</button></div>
+    <p class="muted">Lance la courroie au bouton du tapis, puis la séance impose l'allure et la pente à chaque bloc.</p>
   </div>
 
   <details><summary>Journal technique</summary><div id="log"></div></details>
@@ -189,92 +162,91 @@ let spdTarget=2.0, inclTarget=1.0, spdMin=1, spdMax=18, spdUi=0.1, inclMin=0, in
 const $=id=>document.getElementById(id);
 const logEl=$('log');
 function log(m,cls){ logEl.innerHTML+=(cls?'<span class="'+cls+'">'+m+'</span>':m)+"\n"; logEl.scrollTop=logEl.scrollHeight; }
-function status(m){ $('statusLine').textContent=m||''; }
 function clamp(v,a,b){ return Math.min(b,Math.max(a,v)); }
 function fmt(t){ t=Math.max(0,Math.round(t)); const m=Math.floor(t/60),s=t%60; return m+":"+String(s).padStart(2,'0'); }
-function ctrlButtons(on){ ['incMinus','incPlus','spdMinus','spdPlus','start','stop','incInput','spdInput'].forEach(id=>$(id).disabled=!on); }
-function setConnected(on){
-  $('dot').classList.toggle('on',on); $('chipTxt').textContent=on?'Connecté':'Hors ligne';
-  $('connect').style.display=on?'none':'block'; $('disconnect').style.display=on?'block':'none'; ctrlButtons(on);
+
+// ---------- Vues ----------
+let view='drive';
+function showView(v){
+  view=v; ['drive','sessions','build','play'].forEach(x=>$('view-'+x).style.display=x===v?'block':'none');
+  $('tabDrive').classList.toggle('act', v==='drive');
+  $('tabSess').classList.toggle('act', v==='sessions'||v==='build');
+  if(v==='sessions') renderSessList();
 }
 
-// ---- Onglets ----
-$('tabPilot').onclick=()=>{ $('tabPilot').classList.add('active'); $('tabSess').classList.remove('active'); $('viewPilot').classList.add('active'); $('viewSess').classList.remove('active'); };
-$('tabSess').onclick =()=>{ $('tabSess').classList.add('active'); $('tabPilot').classList.remove('active'); $('viewSess').classList.add('active'); $('viewPilot').classList.remove('active'); };
+// ---------- Connexion tapis ----------
+function ctrlButtons(on){ ['incMinus','incPlus','spdMinus','spdPlus','start','stop','incInput','spdInput'].forEach(id=>$(id).disabled=!on); }
+function setConnected(on){ $('dot').classList.toggle('on',on); $('chipTxt').textContent=on?'Connecté':'Hors ligne';
+  $('connect').style.display=on?'none':'block'; $('disconnect').style.display=on?'block':'none'; ctrlButtons(on); }
 
-// ---- Connexion tapis ----
 $('connect').onclick = async () => {
-  if(!navigator.bluetooth){ status("Web Bluetooth requis (Chrome, HTTPS/localhost)."); return; }
+  if(!navigator.bluetooth){ log("Web Bluetooth requis (Chrome, HTTPS/localhost).",'rx-err'); return; }
   try{
-    status("Sélection du tapis…");
     device = await navigator.bluetooth.requestDevice({ filters:[{services:[FTMS]}], optionalServices:[FTMS,0xfff0] });
     device.addEventListener('gattserverdisconnected', onDisconnect);
     log("Appareil : "+(device.name||"(sans nom)"));
     const server = await device.gatt.connect();
     const svc = await server.getPrimaryService(FTMS);
     const dataCh = await svc.getCharacteristic(DATA);
-    await dataCh.startNotifications();
-    dataCh.addEventListener('characteristicvaluechanged', e=>parseData(e.target.value));
+    await dataCh.startNotifications(); dataCh.addEventListener('characteristicvaluechanged', e=>parseData(e.target.value));
     controlChar = await svc.getCharacteristic(CONTROL);
-    await controlChar.startNotifications();
-    controlChar.addEventListener('characteristicvaluechanged', e=>parseControlResponse(e.target.value));
-    await readRanges(svc);
-    await sendControl([0x00], "Request Control");
+    await controlChar.startNotifications(); controlChar.addEventListener('characteristicvaluechanged', e=>parseControlResponse(e.target.value));
+    await readRanges(svc); await sendControl([0x00],"Request Control");
     setConnected(true); refreshTargets(); resetCounters(); startTimer(); acquireWakeLock();
-    status("Prêt. Lance la courroie au tapis, l'app pilote le reste.");
-  }catch(err){ status("Échec : "+err.message); log("ERR "+err,'rx-err'); }
+  }catch(err){ log("ERR "+err,'rx-err'); }
 };
 $('disconnect').onclick = ()=>{ if(device&&device.gatt.connected) device.gatt.disconnect(); };
-function onDisconnect(){ setConnected(false); stopTimer(); releaseWakeLock(); status("Tapis déconnecté."); log("Déconnecté."); }
+function onDisconnect(){ setConnected(false); stopTimer(); releaseWakeLock(); log("Déconnecté."); }
 
 async function readRanges(svc){
   try{ const d=await (await svc.getCharacteristic(SPD_RANGE)).readValue();
-    spdMin=d.getUint16(0,true)*0.01; spdMax=d.getUint16(2,true)*0.01; $('spdRange').textContent=spdMin+"–"+spdMax+" km/h"; spdTarget=Math.max(spdTarget,spdMin); }catch(e){}
+    spdMin=d.getUint16(0,true)*0.01; spdMax=d.getUint16(2,true)*0.01; $('spdRange').textContent=spdMin+"–"+spdMax+" km/h"; spdTarget=Math.max(spdTarget,spdMin);
+  }catch(e){}
   try{ const d=await (await svc.getCharacteristic(INC_RANGE)).readValue();
-    inclMin=d.getInt16(0,true)*0.1; inclMax=d.getInt16(2,true)*0.1; $('incRange').textContent=inclMin+"–"+inclMax+" %"; inclTarget=Math.max(inclTarget,inclMin); }catch(e){}
+    inclMin=d.getInt16(0,true)*0.1; inclMax=d.getInt16(2,true)*0.1; $('incRange').textContent=inclMin+"–"+inclMax+" %"; inclTarget=Math.max(inclTarget,inclMin);
+  }catch(e){}
   refreshTargets();
 }
 function resetCounters(){ distanceM=0; dPlusM=0; lastDataTs=null; $('distance').textContent='0'; $('dplus').textContent='0'; }
 function startTimer(){ elapsedMs=0; lastTick=performance.now(); if(timerId) clearInterval(timerId); timerId=setInterval(tick,500); tick(); }
 function stopTimer(){ if(timerId){ clearInterval(timerId); timerId=null; } }
 function tick(){ const now=performance.now(); if(lastTick!=null && curSpeed>0) elapsedMs+=now-lastTick; lastTick=now; $('time').textContent=fmt(elapsedMs/1000); }
-async function acquireWakeLock(){ try{ if('wakeLock' in navigator) wakeLock=await navigator.wakeLock.request('screen'); }catch(e){} }
+async function acquireWakeLock(){ try{ if('wakeLock' in navigator){ wakeLock=await navigator.wakeLock.request('screen'); } }catch(e){} }
 function releaseWakeLock(){ if(wakeLock){ wakeLock.release().catch(()=>{}); wakeLock=null; } }
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && device && device.gatt && device.gatt.connected) acquireWakeLock(); });
 
-// ---- Cardio ----
+// ---------- Cardio ----------
 $('pairHr').onclick = async () => {
-  if(!navigator.bluetooth){ status("Web Bluetooth requis."); return; }
+  if(!navigator.bluetooth){ return; }
   try{
     hrDevice = await navigator.bluetooth.requestDevice({ filters:[{services:[HR_SVC]}] });
-    hrDevice.addEventListener('gattserverdisconnected', ()=>{ $('hr').textContent='—'; log("FC déconnectée",'hrlog'); });
+    hrDevice.addEventListener('gattserverdisconnected', ()=>{ $('hr').textContent='—'; $('pHr').textContent='—'; });
     const s=await hrDevice.gatt.connect();
     const ch=await (await s.getPrimaryService(HR_SVC)).getCharacteristic(HR_MEAS);
     await ch.startNotifications();
-    ch.addEventListener('characteristicvaluechanged', e=>{ const dv=e.target.value,f=dv.getUint8(0); $('hr').textContent=(f&1)?dv.getUint16(1,true):dv.getUint8(1); });
+    ch.addEventListener('characteristicvaluechanged', e=>{ const dv=e.target.value,f=dv.getUint8(0);
+      const v=(f&1)?dv.getUint16(1,true):dv.getUint8(1); $('hr').textContent=v; $('pHr').textContent=v; });
     log("FC : "+(hrDevice.name||"(sans nom)")+" connectée",'hrlog');
   }catch(err){ log("FC : "+err.message,'rx-err'); }
 };
 
-// ---- Commandes BLE ----
+// ---------- Commandes ----------
 async function sendControl(bytes, label){
-  if(!controlChar) return;
   try{ await controlChar.writeValueWithResponse(new Uint8Array(bytes)); log("TX "+label,'tx'); }
   catch(err){ log("TX échec ("+label+") : "+err.message,'rx-err'); }
 }
-function applySpeed(){ const v=Math.round(spdTarget*100); return sendControl([0x02,v&0xff,(v>>8)&0xff],"Set Speed "+spdTarget.toFixed(1)); }
-function applyIncline(){ const b=new ArrayBuffer(3); const dv=new DataView(b); dv.setUint8(0,0x03); dv.setInt16(1,Math.round(inclTarget*10),true); return sendControl([...new Uint8Array(b)],"Set Incline "+inclTarget.toFixed(1)); }
-function setSpeedTo(v){ spdTarget=clamp(v,spdMin,spdMax); refreshTargets(); return applySpeed(); }
-function setInclineTo(v){ inclTarget=clamp(v,inclMin,inclMax); refreshTargets(); return applyIncline(); }
-$('start').onclick = async ()=>{ await sendControl([0x07],"Start"); await new Promise(r=>setTimeout(r,150)); await applySpeed(); await applyIncline(); status("Démarrage demandé (courroie au bouton si verrouillé)."); };
-$('stop').onclick  = ()=>{ sendControl([0x08,0x01],"Stop"); status("Arrêt demandé."); };
+function sendSpeed(v){ v=clamp(v,spdMin,spdMax); const r=Math.round(v*100); return sendControl([0x02,r&0xff,(r>>8)&0xff],"Set Speed "+v.toFixed(1)); }
+function sendIncline(v){ v=clamp(v,inclMin,inclMax); const b=new ArrayBuffer(3),dv=new DataView(b); dv.setUint8(0,0x03); dv.setInt16(1,Math.round(v*10),true); return sendControl([...new Uint8Array(b)],"Set Incline "+v.toFixed(1)); }
+$('start').onclick = async ()=>{ await sendControl([0x07],"Start"); await new Promise(r=>setTimeout(r,150)); await sendSpeed(spdTarget); await sendIncline(inclTarget); };
+$('stop').onclick  = ()=>{ sendControl([0x08,0x01],"Stop"); };
 
+// ---------- Saisie + steppers ----------
 let spdT=null, incT=null;
 function refreshTargets(){ $('spdInput').value=spdTarget.toFixed(1); $('incInput').value=inclTarget.toFixed(inclUi<1?1:0); }
-function adjSpd(d){ spdTarget=clamp(+(spdTarget+d).toFixed(1),spdMin,spdMax); refreshTargets(); clearTimeout(spdT); spdT=setTimeout(applySpeed,300); }
-function adjInc(d){ inclTarget=clamp(+(inclTarget+d).toFixed(1),inclMin,inclMax); refreshTargets(); clearTimeout(incT); incT=setTimeout(applyIncline,300); }
-$('spdInput').onchange=()=>{ let v=parseFloat(($('spdInput').value||'').replace(',','.')); if(isNaN(v))v=spdTarget; setSpeedTo(v); };
-$('incInput').onchange=()=>{ let v=parseFloat(($('incInput').value||'').replace(',','.')); if(isNaN(v))v=inclTarget; setInclineTo(v); };
+function adjSpd(d){ spdTarget=clamp(+(spdTarget+d).toFixed(1),spdMin,spdMax); refreshTargets(); clearTimeout(spdT); spdT=setTimeout(()=>sendSpeed(spdTarget),300); }
+function adjInc(d){ inclTarget=clamp(+(inclTarget+d).toFixed(1),inclMin,inclMax); refreshTargets(); clearTimeout(incT); incT=setTimeout(()=>sendIncline(inclTarget),300); }
+$('spdInput').onchange=()=>{ let v=parseFloat(($('spdInput').value||'').replace(',','.')); if(isNaN(v))v=spdTarget; spdTarget=clamp(v,spdMin,spdMax); refreshTargets(); sendSpeed(spdTarget); };
+$('incInput').onchange=()=>{ let v=parseFloat(($('incInput').value||'').replace(',','.')); if(isNaN(v))v=inclTarget; inclTarget=clamp(v,inclMin,inclMax); refreshTargets(); sendIncline(inclTarget); };
 function bindHold(el, fn){ let to=null,iv=null;
   const go=e=>{ e.preventDefault(); fn(); to=setTimeout(()=>{ iv=setInterval(fn,110); },350); };
   const end=()=>{ clearTimeout(to); if(iv){ clearInterval(iv); iv=null; } };
@@ -284,87 +256,110 @@ bindHold($('incPlus'),()=>adjInc(+inclUi)); bindHold($('incMinus'),()=>adjInc(-i
 
 const RESULT={1:"OK",2:"non supporté",3:"paramètre invalide",4:"échec",5:"contrôle non autorisé"};
 const OPNAME={0:"Request Control",1:"Reset",2:"Set Speed",3:"Set Incline",7:"Start",8:"Stop"};
-function parseControlResponse(dv){ if(dv.getUint8(0)===0x80){ const op=dv.getUint8(1),res=dv.getUint8(2); log("RX "+(OPNAME[op]||('0x'+op.toString(16)))+" -> "+(RESULT[res]||res), res===1?'rx-ok':'rx-err'); } }
+function parseControlResponse(dv){ if(dv.getUint8(0)===0x80){ const op=dv.getUint8(1),res=dv.getUint8(2);
+  log("RX "+(OPNAME[op]||('0x'+op.toString(16)))+" -> "+(RESULT[res]||res), res===1?'rx-ok':'rx-err'); } }
 function parseData(dv){
   let o=0; const flags=dv.getUint16(o,true); o+=2; const has=b=>(flags&(1<<b))!==0; const out={};
   if(!has(0)){ out.speed=dv.getUint16(o,true)*0.01; o+=2; }
   if(has(1)){ o+=2; } if(has(2)){ o+=3; }
   if(has(3)){ const i=dv.getInt16(o,true); o+=4; out.incline=(i===SENT)?null:i*0.1; }
-  if(has(4)){ o+=4; } if(has(5)){ o+=1; } if(has(6)){ o+=1; } if(has(7)){ o+=5; } if(has(8)){ o+=1; } if(has(9)){ o+=1; } if(has(10)){ o+=2; }
-  if(out.speed!=null){ curSpeed=out.speed; $('speed').textContent=out.speed.toFixed(1); }
+  if(has(4)){ o+=4; } if(has(5)){ o+=1; } if(has(6)){ o+=1; }
+  if(has(7)){ o+=5; } if(has(8)){ o+=1; } if(has(9)){ o+=1; } if(has(10)){ o+=2; }
+  if(out.speed!=null){ curSpeed=out.speed; $('speed').textContent=out.speed.toFixed(1); $('pActSpd').textContent=out.speed.toFixed(1); }
   if(out.incline!=null) curGrade=out.incline;
   const now=performance.now();
-  if(lastDataTs!=null && out.speed!=null){ let dt=(now-lastDataTs)/1000; if(dt>2)dt=2; const dm=(out.speed/3.6)*dt; distanceM+=dm; if(curGrade>0) dPlusM+=dm*(curGrade/100); $('distance').textContent=Math.round(distanceM); $('dplus').textContent=Math.round(dPlusM); }
+  if(lastDataTs!=null && out.speed!=null){ let dt=(now-lastDataTs)/1000; if(dt>2)dt=2;
+    const dm=(out.speed/3.6)*dt; distanceM+=dm; if(curGrade>0) dPlusM+=dm*(curGrade/100);
+    $('distance').textContent=Math.round(distanceM); $('dplus').textContent=Math.round(dPlusM);
+    $('pDist').textContent=Math.round(distanceM); $('pDplus').textContent=Math.round(dPlusM); }
   lastDataTs=now;
 }
 
-/* ================= SÉANCES ================= */
-let blocks=[ {min:5,spd:6,inc:0},{min:2,spd:10,inc:5},{min:1,spd:6,inc:1},{min:2,spd:10,inc:5},{min:3,spd:5,inc:0} ];
-const blocksEl=$('blocks');
-function renderBlocks(){
-  blocksEl.innerHTML='';
-  blocks.forEach((b,i)=>{
-    const row=document.createElement('div'); row.className='block';
-    row.innerHTML='<span class="bi">'+(i+1)+'</span>'+
-      '<input type="number" inputmode="decimal" step="0.5" value="'+b.min+'" data-i="'+i+'" data-f="min">'+
-      '<input type="number" inputmode="decimal" step="0.1" value="'+b.spd+'" data-i="'+i+'" data-f="spd">'+
-      '<input type="number" inputmode="numeric" step="1" value="'+b.inc+'" data-i="'+i+'" data-f="inc">'+
-      '<button class="del" data-i="'+i+'">×</button>';
-    blocksEl.appendChild(row);
-  });
-  blocksEl.querySelectorAll('input').forEach(inp=>inp.oninput=()=>{ const i=+inp.dataset.i,f=inp.dataset.f; let v=parseFloat((inp.value||'').replace(',','.')); if(!isNaN(v)) blocks[i][f]=v; });
-  blocksEl.querySelectorAll('.del').forEach(btn=>btn.onclick=()=>{ blocks.splice(+btn.dataset.i,1); renderBlocks(); });
-}
-$('addBlock').onclick=()=>{ blocks.push({min:2,spd:8,inc:2}); renderBlocks(); };
-renderBlocks();
+// ================= SEANCES =================
+function loadSessions(){ try{ return JSON.parse(localStorage.getItem('tm_sessions')||'[]'); }catch(e){ return []; } }
+function persist(arr){ localStorage.setItem('tm_sessions', JSON.stringify(arr)); }
+function sessionTotals(segs){ let d=0,dist=0,dp=0; segs.forEach(s=>{ d+=s.dur; const m=(s.spd/3.6)*s.dur; dist+=m; if(s.inc>0) dp+=m*(s.inc/100); }); return {dur:d,dist:Math.round(dist),dp:Math.round(dp)}; }
 
-// localStorage
-function loadSaved(){ try{ return JSON.parse(localStorage.getItem('tm_sessions')||'[]'); }catch(e){ return []; } }
-function refreshSavedList(){ const arr=loadSaved(); const sel=$('savedList'); sel.innerHTML='<option value="">— Séances enregistrées —</option>'; arr.forEach((s,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=s.name; sel.appendChild(o); }); }
-$('saveSess').onclick=()=>{ const arr=loadSaved(); const name=$('sessName').value.trim()||'Séance'; const ex=arr.findIndex(s=>s.name===name);
-  const rec={name,blocks:JSON.parse(JSON.stringify(blocks))}; if(ex>=0) arr[ex]=rec; else arr.push(rec);
-  try{ localStorage.setItem('tm_sessions',JSON.stringify(arr)); refreshSavedList(); status("Séance « "+name+" » enregistrée."); }catch(e){ status("Sauvegarde impossible."); } };
-$('loadSess').onclick=()=>{ const i=$('savedList').value; if(i==='')return; const s=loadSaved()[+i]; if(!s)return; $('sessName').value=s.name; blocks=JSON.parse(JSON.stringify(s.blocks)); renderBlocks(); };
-$('delSess').onclick=()=>{ const i=$('savedList').value; if(i==='')return; const arr=loadSaved(); arr.splice(+i,1); localStorage.setItem('tm_sessions',JSON.stringify(arr)); refreshSavedList(); };
-refreshSavedList();
+function renderSessList(){
+  const arr=loadSessions(); const el=$('sessList');
+  if(!arr.length){ el.innerHTML='<p class="muted">Aucune séance. Crée ta première avec « + Nouvelle séance ».</p>'; return; }
+  el.innerHTML=arr.map(s=>{ const t=sessionTotals(s.segments);
+    return '<div class="sesscard"><div><div class="t">'+escapeHtml(s.name)+'</div><div class="m">'+s.segments.length+' blocs · '+fmt(t.dur)+' · '+(t.dist/1000).toFixed(2)+' km · '+t.dp+' m D+</div></div>'+
+    '<div style="display:flex;gap:6px"><button class="run" onclick="editSession(\''+s.id+'\')" style="background:var(--surface2);color:var(--text)">Éditer</button>'+
+    '<button class="run" onclick="playFromId(\''+s.id+'\')">Lancer</button></div></div>'; }).join('');
+}
+function escapeHtml(s){ return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
-// Moteur de playback
-let pb={ active:false, paused:false, idx:0, el:0, list:[] }, pbTimer=null;
-function totalDur(){ return pb.list.reduce((a,b)=>a+b.dur,0); }
-function doneDur(){ let d=0; for(let i=0;i<pb.idx;i++) d+=pb.list[i].dur; return d+pb.el; }
-function applyBlock(i){ const b=pb.list[i]; setSpeedTo(b.spd); setInclineTo(b.inc); }
-function updateRun(){
-  if(!pb.active){ $('runState').textContent='Aucune séance en cours'; $('runBlock').textContent='—'; $('runTarget').textContent='—'; $('runRem').textContent='0:00'; $('runNext').textContent=''; $('runProg').style.width='0%'; return; }
-  const b=pb.list[pb.idx];
-  $('runState').textContent=pb.paused?'En pause':'Séance en cours';
-  $('runBlock').textContent=(pb.idx+1)+'/'+pb.list.length;
-  $('runTarget').textContent=b.spd.toFixed(1)+' km/h · '+b.inc+'%';
-  $('runRem').textContent=fmt(b.dur-pb.el);
-  const n=pb.list[pb.idx+1]; $('runNext').textContent=n?('Suivant : '+n.spd.toFixed(1)+' km/h · '+n.inc+'% ('+fmt(n.dur)+')'):'Dernier bloc';
-  $('runProg').style.width=(100*doneDur()/totalDur()).toFixed(1)+'%';
+// ---- Builder ----
+let draft=null; // {id,name,segments:[{dur,spd,inc}]}
+function newSession(){ draft={ id:'s'+Date.now(), name:'', segments:[{dur:120,spd:6,inc:0}] }; $('sessName').value=''; renderSegs(); showView('build'); }
+function editSession(id){ const s=loadSessions().find(x=>x.id===id); if(!s) return; draft=JSON.parse(JSON.stringify(s)); $('sessName').value=s.name; renderSegs(); showView('build'); }
+function segAdd(){ draft.segments.push({dur:60,spd:6,inc:0}); renderSegs(); }
+function segDel(i){ draft.segments.splice(i,1); renderSegs(); }
+function segSet(i,f,v){ v=parseFloat((v||'').toString().replace(',','.')); if(isNaN(v))v=0; draft.segments[i][f]=v; updateTotals(); }
+function segSetDur(i,part,v){ v=parseInt(v||'0',10)||0; const cur=draft.segments[i].dur; let m=Math.floor(cur/60),s=cur%60; if(part==='m')m=v; else s=v; draft.segments[i].dur=m*60+s; updateTotals(); }
+function renderSegs(){
+  $('segList').innerHTML=draft.segments.map((s,i)=>{ const m=Math.floor(s.dur/60),sec=s.dur%60;
+    return '<div class="seg"><div class="sh"><b>Bloc '+(i+1)+'</b><button class="del" onclick="segDel('+i+')">🗑</button></div>'+
+    '<div class="fields"><div class="fld"><label>Durée</label><div class="dur">'+
+    '<input type="number" inputmode="numeric" value="'+m+'" onchange="segSetDur('+i+',\'m\',this.value)"><span>:</span>'+
+    '<input type="number" inputmode="numeric" value="'+String(sec).padStart(2,'0')+'" onchange="segSetDur('+i+',\'s\',this.value)"></div></div>'+
+    '<div class="fld"><label>Allure km/h</label><input type="number" inputmode="decimal" step="0.1" value="'+s.spd+'" onchange="segSet('+i+',\'spd\',this.value)"></div>'+
+    '<div class="fld"><label>Pente %</label><input type="number" inputmode="numeric" value="'+s.inc+'" onchange="segSet('+i+',\'inc\',this.value)"></div></div></div>'; }).join('');
+  updateTotals();
 }
-function pbTick(){ if(!pb.active||pb.paused) return; pb.el+=0.25; const b=pb.list[pb.idx];
-  if(pb.el>=b.dur){ pb.idx++; pb.el=0; if(pb.idx>=pb.list.length){ endSession(true); return; } applyBlock(pb.idx); }
-  updateRun();
+function updateTotals(){ const t=sessionTotals(draft.segments); $('buildTotals').textContent='Total : '+fmt(t.dur)+' · '+(t.dist/1000).toFixed(2)+' km · '+t.dp+' m D+'; }
+function saveSession(){
+  const name=($('sessName').value||'').trim(); if(!name){ alert('Donne un nom à la séance.'); return; }
+  draft.name=name; const arr=loadSessions(); const i=arr.findIndex(x=>x.id===draft.id);
+  if(i>=0) arr[i]=draft; else arr.push(draft); persist(arr); showView('sessions');
 }
-$('runLaunch').onclick=()=>{
-  if(!controlChar){ status("Connecte d'abord le tapis."); $('tabPilot').click(); return; }
-  const list=blocks.filter(b=>b.min>0).map(b=>({dur:Math.round(b.min*60),spd:+b.spd,inc:+b.inc}));
-  if(!list.length){ status("Ajoute au moins un bloc."); return; }
-  pb={ active:true, paused:false, idx:0, el:0, list }; applyBlock(0);
-  if(pbTimer) clearInterval(pbTimer); pbTimer=setInterval(pbTick,250);
-  $('runLaunch').disabled=true; $('runPause').disabled=false; $('runStop').disabled=false; updateRun();
-  log("Séance lancée : "+list.length+" blocs");
-};
-$('runPause').onclick=()=>{ pb.paused=!pb.paused; $('runPause').textContent=pb.paused?'Reprendre':'Pause'; updateRun(); };
-$('runStop').onclick=()=>endSession(false);
-function endSession(finished){
-  pb.active=false; if(pbTimer){ clearInterval(pbTimer); pbTimer=null; }
-  $('runLaunch').disabled=false; $('runPause').disabled=true; $('runStop').disabled=true; $('runPause').textContent='Pause';
-  updateRun(); $('runState').textContent=finished?'Séance terminée':'Séance arrêtée';
-  if(controlChar) setSpeedTo(spdMin); // ramène au mini en fin de séance
-  log(finished?"Séance terminée":"Séance arrêtée");
+
+// ================= PLAYBACK =================
+let play=null; // {session,idx,segStart,timer,paused,pausedAt}
+function playFromId(id){ const s=loadSessions().find(x=>x.id===id); if(!s) return; startPlay(s); }
+function startPlay(session){
+  if(!controlChar){ log("Connecte le tapis avant de lancer une séance.",'rx-err'); showView('drive'); return; }
+  resetCounters();
+  play={ session, idx:0, segStart:performance.now(), timer:null, paused:false, pausedAt:0 };
+  $('playName').textContent=session.name;
+  applySeg(session.segments[0]);
+  play.timer=setInterval(playTick,300); renderPlay();
+  showView('play');
 }
+function applySeg(seg){ sendSpeed(seg.spd); sendIncline(seg.inc); }
+function playTick(){
+  if(!play || play.paused) return;
+  const seg=play.session.segments[play.idx];
+  const inSeg=(performance.now()-play.segStart)/1000;
+  if(inSeg>=seg.dur){
+    play.idx++;
+    if(play.idx>=play.session.segments.length){ playFinish(); return; }
+    play.segStart=performance.now(); applySeg(play.session.segments[play.idx]);
+  }
+  renderPlay();
+}
+function renderPlay(){
+  const segs=play.session.segments, seg=segs[play.idx];
+  const inSeg=(performance.now()-play.segStart)/1000, rem=Math.max(0,seg.dur-inSeg);
+  $('pSpd').textContent=seg.spd.toFixed(1); $('pInc').textContent=Math.round(seg.inc);
+  $('pBlock').textContent='Bloc '+(play.idx+1)+' / '+segs.length;
+  $('pRem').textContent=fmt(rem);
+  $('pSegBar').style.width=Math.min(100,inSeg/seg.dur*100)+'%';
+  const totDur=segs.reduce((a,s)=>a+s.dur,0);
+  let done=0; for(let i=0;i<play.idx;i++) done+=segs[i].dur; done+=Math.min(inSeg,seg.dur);
+  $('pTot').textContent=fmt(done)+' / '+fmt(totDur);
+  $('pTotBar').style.width=Math.min(100,done/totDur*100)+'%';
+  const nx=segs[play.idx+1];
+  $('pNext').textContent=nx? ('Suivant : '+nx.spd.toFixed(1)+' km/h · '+Math.round(nx.inc)+' % · '+fmt(nx.dur)) : 'Dernier bloc';
+}
+function playPause(){ if(!play) return;
+  if(!play.paused){ play.paused=true; play.pausedAt=performance.now(); $('pPause').textContent='Reprendre'; }
+  else { play.segStart+=performance.now()-play.pausedAt; play.paused=false; $('pPause').textContent='Pause'; renderPlay(); } }
+function playFinish(){ log("Séance terminée."); playStop(true); }
+function playStop(slow){ if(play&&play.timer) clearInterval(play.timer); if(slow&&controlChar) sendSpeed(spdMin); play=null; $('pPause').textContent='Pause'; showView('sessions'); }
+
+renderSessList();
 </script>
 </body>
 </html>
