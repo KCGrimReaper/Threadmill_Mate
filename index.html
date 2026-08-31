@@ -54,6 +54,8 @@
   .seg{ background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:11px 12px; margin-bottom:8px; }
   .seg .sh{ display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
   .seg .sh b{ font-size:13px; } .seg .del{ border:none; background:transparent; color:var(--stop); font-size:18px; cursor:pointer; }
+  .segname{ flex:1; background:transparent; border:none; border-bottom:1px solid var(--border); color:var(--text); font:600 13px Inter; padding:2px 0; margin-right:10px; }
+  .segname:focus{ outline:none; border-bottom-color:var(--accent); }
   .seg .fields{ display:grid; grid-template-columns:1.3fr 1fr 1fr; gap:8px; }
   .fld label{ display:block; font-size:10.5px; color:var(--muted); margin-bottom:3px; }
   .fld input{ width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:9px 8px; font:500 15px Inter; font-variant-numeric:tabular-nums; }
@@ -77,7 +79,7 @@
   <div class="setup">
     <div><button id="connect" class="cta">Connecter le tapis</button>
       <button id="disconnect" class="cta ghost" style="display:none">Déconnecter</button></div>
-    <button id="pairHr" class="cta ghost">Fréquence cardiaque</button>
+    <button id="pairHr" class="cta ghost">Appairer un capteur cardiaque</button>
   </div>
 
   <div class="tabs">
@@ -292,15 +294,16 @@ function escapeHtml(s){ return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&
 
 // ---- Builder ----
 let draft=null; // {id,name,segments:[{dur,spd,inc}]}
-function newSession(){ draft={ id:'s'+Date.now(), name:'', segments:[{dur:120,spd:6,inc:0}] }; $('sessName').value=''; renderSegs(); showView('build'); }
+function newSession(){ draft={ id:'s'+Date.now(), name:'', segments:[{name:'',dur:120,spd:6,inc:0}] }; $('sessName').value=''; renderSegs(); showView('build'); }
 function editSession(id){ const s=loadSessions().find(x=>x.id===id); if(!s) return; draft=JSON.parse(JSON.stringify(s)); $('sessName').value=s.name; renderSegs(); showView('build'); }
-function segAdd(){ draft.segments.push({dur:60,spd:6,inc:0}); renderSegs(); }
+function segAdd(){ draft.segments.push({name:'',dur:60,spd:6,inc:0}); renderSegs(); }
+function segSetName(i,v){ draft.segments[i].name=v; }
 function segDel(i){ draft.segments.splice(i,1); renderSegs(); }
 function segSet(i,f,v){ v=parseFloat((v||'').toString().replace(',','.')); if(isNaN(v))v=0; draft.segments[i][f]=v; updateTotals(); }
 function segSetDur(i,part,v){ v=parseInt(v||'0',10)||0; const cur=draft.segments[i].dur; let m=Math.floor(cur/60),s=cur%60; if(part==='m')m=v; else s=v; draft.segments[i].dur=m*60+s; updateTotals(); }
 function renderSegs(){
   $('segList').innerHTML=draft.segments.map((s,i)=>{ const m=Math.floor(s.dur/60),sec=s.dur%60;
-    return '<div class="seg"><div class="sh"><b>Bloc '+(i+1)+'</b><button class="del" onclick="segDel('+i+')">🗑</button></div>'+
+    return '<div class="seg"><div class="sh"><input class="segname" value="'+escapeHtml(s.name||'')+'" placeholder="Bloc '+(i+1)+'" onchange="segSetName('+i+',this.value)"><button class="del" onclick="segDel('+i+')">🗑</button></div>'+
     '<div class="fields"><div class="fld"><label>Durée</label><div class="dur">'+
     '<input type="number" inputmode="numeric" value="'+m+'" onchange="segSetDur('+i+',\'m\',this.value)"><span>:</span>'+
     '<input type="number" inputmode="numeric" value="'+String(sec).padStart(2,'0')+'" onchange="segSetDur('+i+',\'s\',this.value)"></div></div>'+
@@ -343,7 +346,7 @@ function renderPlay(){
   const segs=play.session.segments, seg=segs[play.idx];
   const inSeg=(performance.now()-play.segStart)/1000, rem=Math.max(0,seg.dur-inSeg);
   $('pSpd').textContent=seg.spd.toFixed(1); $('pInc').textContent=Math.round(seg.inc);
-  $('pBlock').textContent='Bloc '+(play.idx+1)+' / '+segs.length;
+  $('pBlock').textContent=(seg.name&&seg.name.trim()? seg.name : 'Bloc '+(play.idx+1))+' ('+(play.idx+1)+'/'+segs.length+')';
   $('pRem').textContent=fmt(rem);
   $('pSegBar').style.width=Math.min(100,inSeg/seg.dur*100)+'%';
   const totDur=segs.reduce((a,s)=>a+s.dur,0);
@@ -351,7 +354,7 @@ function renderPlay(){
   $('pTot').textContent=fmt(done)+' / '+fmt(totDur);
   $('pTotBar').style.width=Math.min(100,done/totDur*100)+'%';
   const nx=segs[play.idx+1];
-  $('pNext').textContent=nx? ('Suivant : '+nx.spd.toFixed(1)+' km/h · '+Math.round(nx.inc)+' % · '+fmt(nx.dur)) : 'Dernier bloc';
+  $('pNext').textContent=nx? ('Suivant : '+(nx.name&&nx.name.trim()?nx.name+' — ':'')+nx.spd.toFixed(1)+' km/h · '+Math.round(nx.inc)+' % · '+fmt(nx.dur)) : 'Dernier bloc';
 }
 function playPause(){ if(!play) return;
   if(!play.paused){ play.paused=true; play.pausedAt=performance.now(); $('pPause').textContent='Reprendre'; }
