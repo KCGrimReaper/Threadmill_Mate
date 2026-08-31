@@ -17,7 +17,8 @@
   .chip{ display:inline-flex; align-items:center; gap:7px; font-size:12.5px; color:var(--muted); background:var(--surface); border:1px solid var(--border); padding:6px 11px; border-radius:999px; }
   .dot{ width:8px; height:8px; border-radius:50%; background:#4b5563; }
   .dot.on{ background:var(--go); box-shadow:0 0 0 3px rgba(47,184,114,.18); }
-  .setup{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
+  .setup{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; align-items:stretch; }
+  .setup>div{ display:flex; } .setup>div>.cta{ height:100%; }
   .cta{ width:100%; border:none; border-radius:14px; padding:14px; font:600 14.5px Inter; cursor:pointer; background:var(--accent); color:#1a0d02; }
   .cta.ghost{ background:transparent; border:1px solid var(--border); color:var(--text); }
   .cta:disabled{ opacity:.4; }
@@ -50,12 +51,14 @@
   .acts button:disabled{ opacity:.4; }
   .sesscard{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:14px; margin-bottom:10px; display:flex; align-items:center; justify-content:space-between; gap:10px; }
   .sesscard .t{ font-weight:600; font-size:15px; } .sesscard .m{ font-size:12px; color:var(--muted); margin-top:3px; }
+  .tag{ font-size:10px; font-weight:600; padding:2px 7px; border-radius:6px; margin-left:6px; vertical-align:middle; }
+  .tag.gpx{ background:rgba(255,138,61,.15); color:var(--accent); } .tag.itv{ background:var(--surface2); color:var(--muted); }
   .sesscard .run{ border:none; background:var(--accent); color:#1a0d02; font:600 13px Inter; padding:10px 14px; border-radius:10px; cursor:pointer; }
   .seg{ background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:11px 12px; margin-bottom:8px; }
   .seg .sh{ display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
-  .seg .sh b{ font-size:13px; } .seg .del{ border:none; background:transparent; color:var(--stop); font-size:18px; cursor:pointer; }
   .segname{ flex:1; background:transparent; border:none; border-bottom:1px solid var(--border); color:var(--text); font:600 13px Inter; padding:2px 0; margin-right:10px; }
   .segname:focus{ outline:none; border-bottom-color:var(--accent); }
+  .seg .del{ border:none; background:transparent; color:var(--stop); font-size:18px; cursor:pointer; }
   .seg .fields{ display:grid; grid-template-columns:1.3fr 1fr 1fr; gap:8px; }
   .fld label{ display:block; font-size:10.5px; color:var(--muted); margin-bottom:3px; }
   .fld input{ width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:9px 8px; font:500 15px Inter; font-variant-numeric:tabular-nums; }
@@ -67,6 +70,7 @@
   .pbar{ height:8px; background:var(--surface2); border-radius:6px; overflow:hidden; margin:6px 0 2px; }
   .pbar>i{ display:block; height:100%; background:var(--accent); width:0%; }
   .muted{ color:var(--muted); font-size:12px; }
+  .err{ color:var(--stop); font-size:12.5px; min-height:16px; }
   details{ margin-top:14px; } summary{ color:var(--muted); font-size:12.5px; cursor:pointer; }
   #log{ font-family:ui-monospace,Menlo,monospace; font-size:11px; color:#9aa3ad; background:#0a0d11; border:1px solid var(--border); border-radius:10px; padding:10px; margin-top:8px; max-height:180px; overflow-y:auto; white-space:pre-wrap; }
   .rx-ok{ color:var(--go); } .rx-err{ color:var(--stop); } .tx{ color:#6aa8ff; } .hrlog{ color:#f79fbf; }
@@ -87,7 +91,7 @@
     <button id="tabSess" onclick="showView('sessions')">Séances</button>
   </div>
 
-  <!-- ===== PILOTAGE ===== -->
+  <!-- PILOTAGE -->
   <div id="view-drive">
     <div class="hero"><div class="k">Vitesse</div><div class="bar"></div>
       <div class="v"><span id="speed">0.0</span></div><div class="u">km/h</div></div>
@@ -110,45 +114,67 @@
     <p class="muted">La courroie se lance au bouton physique du tapis (démarrage à distance verrouillé). L'app pilote allure et pente.</p>
   </div>
 
-  <!-- ===== SEANCES ===== -->
+  <!-- SEANCES -->
   <div id="view-sessions" style="display:none">
-    <button class="cta" onclick="newSession()" style="margin-bottom:14px">+ Nouvelle séance</button>
+    <div class="setup" style="margin-bottom:14px">
+      <button class="cta" onclick="newSession()">+ Nouvelle séance</button>
+      <button class="cta ghost" onclick="document.getElementById('gpxFile').click()">Importer un GPX</button>
+    </div>
+    <input type="file" id="gpxFile" accept=".gpx" style="display:none">
+    <p id="gpxMsg" class="err"></p>
     <div id="sessList"></div>
   </div>
 
-  <!-- ===== BUILDER ===== -->
+  <!-- BUILDER -->
   <div id="view-build" style="display:none">
     <input id="sessName" class="name" placeholder="Nom de la séance (ex. 6×2min côte)">
     <div id="segList"></div>
     <button class="cta ghost" onclick="segAdd()" style="margin-bottom:10px">+ Ajouter un bloc</button>
     <p id="buildTotals" class="muted"></p>
+    <p id="buildErr" class="err"></p>
     <div class="acts"><button class="go" onclick="saveSession()">Enregistrer</button>
       <button class="stopb" onclick="showView('sessions')">Annuler</button></div>
   </div>
 
-  <!-- ===== PLAYBACK ===== -->
+  <!-- PLAYBACK -->
   <div id="view-play" style="display:none">
-    <div class="muted" id="playName" style="text-align:center;margin-bottom:6px"></div>
-    <div class="prow">
-      <div class="pbig"><div class="lbl">Allure cible</div><div class="tgt"><span id="pSpd">—</span><small style="font-size:16px;color:var(--muted)"> km/h</small></div></div>
-      <div class="pbig"><div class="lbl">Pente cible</div><div class="tgt"><span id="pInc">—</span><small style="font-size:16px;color:var(--muted)"> %</small></div></div>
+    <div class="muted" id="playName" style="text-align:center;margin-bottom:8px"></div>
+
+    <div id="pPrestart" style="display:none">
+      <p id="pPreInfo" class="muted" style="text-align:center;margin-bottom:14px"></p>
+      <button class="cta" id="pModeGpx" style="margin-bottom:8px">Suivre l'allure du GPX</button>
+      <button class="cta ghost" id="pModeFree" style="margin-bottom:8px">Allure libre (pente auto)</button>
+      <button class="stopb cta" style="border:1px solid var(--stop);background:transparent;color:var(--stop)" onclick="showView('sessions')">Annuler</button>
     </div>
-    <div class="ctrl">
-      <div class="lab"><b id="pBlock">Bloc —</b><span id="pRem">—</span></div>
-      <div class="pbar"><i id="pSegBar"></i></div>
-      <div class="lab" style="margin:8px 0 0"><span class="muted">Séance</span><span id="pTot" class="muted">—</span></div>
-      <div class="pbar"><i id="pTotBar"></i></div>
-      <div class="muted" id="pNext" style="margin-top:8px"></div>
+
+    <div id="pRun" style="display:none">
+      <div class="prow">
+        <div class="pbig"><div class="lbl">Allure cible</div><div class="tgt"><span id="pSpd">—</span><small style="font-size:16px;color:var(--muted)"> km/h</small></div></div>
+        <div class="pbig"><div class="lbl">Pente cible</div><div class="tgt"><span id="pInc">—</span><small style="font-size:16px;color:var(--muted)"> %</small></div></div>
+      </div>
+      <div class="ctrl">
+        <div class="lab"><b id="pBlock">—</b><span id="pRem">—</span></div>
+        <div class="pbar"><i id="pSegBar"></i></div>
+        <div class="lab" style="margin:8px 0 0"><span class="muted" id="pTotLbl">Séance</span><span id="pTot" class="muted">—</span></div>
+        <div class="pbar"><i id="pTotBar"></i></div>
+        <div class="muted" id="pNext" style="margin-top:8px"></div>
+      </div>
+      <div class="ctrl" id="pSpeedCtrl" style="display:none">
+        <div class="lab"><b>Allure</b><span>libre</span></div>
+        <div class="row"><button id="pSpdMinus" class="step">−</button>
+          <div class="valwrap"><input id="pSpdInput" class="val" type="number" inputmode="decimal" step="0.1" value="2.0"><small>km/h</small></div>
+          <button id="pSpdPlus" class="step">+</button></div>
+      </div>
+      <div class="stats">
+        <div class="cell"><div class="cl">Vitesse</div><div class="cv"><span id="pActSpd">0.0</span></div></div>
+        <div class="cell"><div class="cl">Distance</div><div class="cv"><span id="pDist">0</span></div></div>
+        <div class="cell"><div class="cl">D+</div><div class="cv"><span id="pDplus">0</span></div></div>
+        <div class="cell"><div class="cl">FC</div><div class="cv"><span id="pHr">—</span></div></div>
+      </div>
+      <div class="acts"><button id="pPause" class="go" onclick="playPause()">Pause</button>
+        <button class="stopb" onclick="playStop(true)">Terminer</button></div>
+      <p class="muted">Lance la courroie au bouton du tapis, puis le profil s'impose au fil de la course.</p>
     </div>
-    <div class="stats">
-      <div class="cell"><div class="cl">Vitesse</div><div class="cv"><span id="pActSpd">0.0</span></div></div>
-      <div class="cell"><div class="cl">Distance</div><div class="cv"><span id="pDist">0</span></div></div>
-      <div class="cell"><div class="cl">D+</div><div class="cv"><span id="pDplus">0</span></div></div>
-      <div class="cell"><div class="cl">FC</div><div class="cv"><span id="pHr">—</span></div></div>
-    </div>
-    <div class="acts"><button id="pPause" class="go" onclick="playPause()">Pause</button>
-      <button class="stopb" onclick="playStop(true)">Terminer</button></div>
-    <p class="muted">Lance la courroie au bouton du tapis, puis la séance impose l'allure et la pente à chaque bloc.</p>
   </div>
 
   <details><summary>Journal technique</summary><div id="log"></div></details>
@@ -156,6 +182,7 @@
 <script>
 const FTMS=0x1826, DATA=0x2acd, CONTROL=0x2ad9, SPD_RANGE=0x2ad4, INC_RANGE=0x2ad5;
 const HR_SVC=0x180d, HR_MEAS=0x2a37, SENT=0x7fff;
+const GPX_SEG=50; // longueur de lissage du profil, en mètres
 let device=null, controlChar=null, hrDevice=null, wakeLock=null;
 let elapsedMs=0, lastTick=null, timerId=null, curSpeed=0, curGrade=0;
 let distanceM=0, dPlusM=0, lastDataTs=null;
@@ -166,17 +193,13 @@ const logEl=$('log');
 function log(m,cls){ logEl.innerHTML+=(cls?'<span class="'+cls+'">'+m+'</span>':m)+"\n"; logEl.scrollTop=logEl.scrollHeight; }
 function clamp(v,a,b){ return Math.min(b,Math.max(a,v)); }
 function fmt(t){ t=Math.max(0,Math.round(t)); const m=Math.floor(t/60),s=t%60; return m+":"+String(s).padStart(2,'0'); }
+function escapeHtml(s){ return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
-// ---------- Vues ----------
 let view='drive';
-function showView(v){
-  view=v; ['drive','sessions','build','play'].forEach(x=>$('view-'+x).style.display=x===v?'block':'none');
-  $('tabDrive').classList.toggle('act', v==='drive');
-  $('tabSess').classList.toggle('act', v==='sessions'||v==='build');
-  if(v==='sessions') renderSessList();
-}
+function showView(v){ view=v; ['drive','sessions','build','play'].forEach(x=>$('view-'+x).style.display=x===v?'block':'none');
+  $('tabDrive').classList.toggle('act', v==='drive'); $('tabSess').classList.toggle('act', v==='sessions'||v==='build');
+  if(v==='sessions'){ $('gpxMsg').textContent=''; renderSessList(); } }
 
-// ---------- Connexion tapis ----------
 function ctrlButtons(on){ ['incMinus','incPlus','spdMinus','spdPlus','start','stop','incInput','spdInput'].forEach(id=>$(id).disabled=!on); }
 function setConnected(on){ $('dot').classList.toggle('on',on); $('chipTxt').textContent=on?'Connecté':'Hors ligne';
   $('connect').style.display=on?'none':'block'; $('disconnect').style.display=on?'block':'none'; ctrlButtons(on); }
@@ -217,7 +240,6 @@ async function acquireWakeLock(){ try{ if('wakeLock' in navigator){ wakeLock=awa
 function releaseWakeLock(){ if(wakeLock){ wakeLock.release().catch(()=>{}); wakeLock=null; } }
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && device && device.gatt && device.gatt.connected) acquireWakeLock(); });
 
-// ---------- Cardio ----------
 $('pairHr').onclick = async () => {
   if(!navigator.bluetooth){ return; }
   try{
@@ -232,7 +254,6 @@ $('pairHr').onclick = async () => {
   }catch(err){ log("FC : "+err.message,'rx-err'); }
 };
 
-// ---------- Commandes ----------
 async function sendControl(bytes, label){
   try{ await controlChar.writeValueWithResponse(new Uint8Array(bytes)); log("TX "+label,'tx'); }
   catch(err){ log("TX échec ("+label+") : "+err.message,'rx-err'); }
@@ -242,19 +263,20 @@ function sendIncline(v){ v=clamp(v,inclMin,inclMax); const b=new ArrayBuffer(3),
 $('start').onclick = async ()=>{ await sendControl([0x07],"Start"); await new Promise(r=>setTimeout(r,150)); await sendSpeed(spdTarget); await sendIncline(inclTarget); };
 $('stop').onclick  = ()=>{ sendControl([0x08,0x01],"Stop"); };
 
-// ---------- Saisie + steppers ----------
 let spdT=null, incT=null;
-function refreshTargets(){ $('spdInput').value=spdTarget.toFixed(1); $('incInput').value=inclTarget.toFixed(inclUi<1?1:0); }
+function refreshTargets(){ $('spdInput').value=spdTarget.toFixed(1); $('incInput').value=inclTarget.toFixed(inclUi<1?1:0); if($('pSpdInput')) $('pSpdInput').value=spdTarget.toFixed(1); }
 function adjSpd(d){ spdTarget=clamp(+(spdTarget+d).toFixed(1),spdMin,spdMax); refreshTargets(); clearTimeout(spdT); spdT=setTimeout(()=>sendSpeed(spdTarget),300); }
 function adjInc(d){ inclTarget=clamp(+(inclTarget+d).toFixed(1),inclMin,inclMax); refreshTargets(); clearTimeout(incT); incT=setTimeout(()=>sendIncline(inclTarget),300); }
 $('spdInput').onchange=()=>{ let v=parseFloat(($('spdInput').value||'').replace(',','.')); if(isNaN(v))v=spdTarget; spdTarget=clamp(v,spdMin,spdMax); refreshTargets(); sendSpeed(spdTarget); };
 $('incInput').onchange=()=>{ let v=parseFloat(($('incInput').value||'').replace(',','.')); if(isNaN(v))v=inclTarget; inclTarget=clamp(v,inclMin,inclMax); refreshTargets(); sendIncline(inclTarget); };
+$('pSpdInput').onchange=()=>{ let v=parseFloat(($('pSpdInput').value||'').replace(',','.')); if(isNaN(v))v=spdTarget; spdTarget=clamp(v,spdMin,spdMax); refreshTargets(); sendSpeed(spdTarget); };
 function bindHold(el, fn){ let to=null,iv=null;
   const go=e=>{ e.preventDefault(); fn(); to=setTimeout(()=>{ iv=setInterval(fn,110); },350); };
   const end=()=>{ clearTimeout(to); if(iv){ clearInterval(iv); iv=null; } };
   el.addEventListener('pointerdown',go); el.addEventListener('pointerup',end); el.addEventListener('pointerleave',end); el.addEventListener('pointercancel',end); }
 bindHold($('spdPlus'),()=>adjSpd(+spdUi)); bindHold($('spdMinus'),()=>adjSpd(-spdUi));
 bindHold($('incPlus'),()=>adjInc(+inclUi)); bindHold($('incMinus'),()=>adjInc(-inclUi));
+bindHold($('pSpdPlus'),()=>adjSpd(+spdUi)); bindHold($('pSpdMinus'),()=>adjSpd(-spdUi));
 
 const RESULT={1:"OK",2:"non supporté",3:"paramètre invalide",4:"échec",5:"contrôle non autorisé"};
 const OPNAME={0:"Request Control",1:"Reset",2:"Set Speed",3:"Set Incline",7:"Start",8:"Stop"};
@@ -284,21 +306,24 @@ function sessionTotals(segs){ let d=0,dist=0,dp=0; segs.forEach(s=>{ d+=s.dur; c
 
 function renderSessList(){
   const arr=loadSessions(); const el=$('sessList');
-  if(!arr.length){ el.innerHTML='<p class="muted">Aucune séance. Crée ta première avec « + Nouvelle séance ».</p>'; return; }
-  el.innerHTML=arr.map(s=>{ const t=sessionTotals(s.segments);
-    return '<div class="sesscard"><div><div class="t">'+escapeHtml(s.name)+'</div><div class="m">'+s.segments.length+' blocs · '+fmt(t.dur)+' · '+(t.dist/1000).toFixed(2)+' km · '+t.dp+' m D+</div></div>'+
-    '<div style="display:flex;gap:6px"><button class="run" onclick="editSession(\''+s.id+'\')" style="background:var(--surface2);color:var(--text)">Éditer</button>'+
-    '<button class="run" onclick="playFromId(\''+s.id+'\')">Lancer</button></div></div>'; }).join('');
+  if(!arr.length){ el.innerHTML='<p class="muted">Aucune séance. Crée une séance à intervalles ou importe un GPX.</p>'; return; }
+  el.innerHTML=arr.map(s=>{
+    let meta, tag;
+    if(s.type==='gpx'){ tag='<span class="tag gpx">GPX</span>'; meta=(s.totalDist/1000).toFixed(2)+' km · '+s.totalDplus+' m D+'+(s.hasTime?' · allure dispo':''); }
+    else { const t=sessionTotals(s.segments); tag='<span class="tag itv">INTERVALLES</span>'; meta=s.segments.length+' blocs · '+fmt(t.dur)+' · '+(t.dist/1000).toFixed(2)+' km · '+t.dp+' m D+'; }
+    const edit = s.type==='gpx' ? '' : '<button class="run" onclick="editSession(\''+s.id+'\')" style="background:var(--surface2);color:var(--text)">Éditer</button>';
+    return '<div class="sesscard"><div><div class="t">'+escapeHtml(s.name)+tag+'</div><div class="m">'+meta+'</div></div>'+
+    '<div style="display:flex;gap:6px">'+edit+'<button class="run" onclick="launch(\''+s.id+'\')">Lancer</button></div></div>';
+  }).join('');
 }
-function escapeHtml(s){ return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
-// ---- Builder ----
-let draft=null; // {id,name,segments:[{dur,spd,inc}]}
-function newSession(){ draft={ id:'s'+Date.now(), name:'', segments:[{name:'',dur:120,spd:6,inc:0}] }; $('sessName').value=''; renderSegs(); showView('build'); }
-function editSession(id){ const s=loadSessions().find(x=>x.id===id); if(!s) return; draft=JSON.parse(JSON.stringify(s)); $('sessName').value=s.name; renderSegs(); showView('build'); }
+// ---- Builder intervalles ----
+let draft=null;
+function newSession(){ draft={ id:'s'+Date.now(), type:'interval', name:'', segments:[{name:'',dur:120,spd:6,inc:0}] }; $('sessName').value=''; $('buildErr').textContent=''; renderSegs(); showView('build'); }
+function editSession(id){ const s=loadSessions().find(x=>x.id===id); if(!s) return; draft=JSON.parse(JSON.stringify(s)); $('sessName').value=s.name; $('buildErr').textContent=''; renderSegs(); showView('build'); }
 function segAdd(){ draft.segments.push({name:'',dur:60,spd:6,inc:0}); renderSegs(); }
-function segSetName(i,v){ draft.segments[i].name=v; }
 function segDel(i){ draft.segments.splice(i,1); renderSegs(); }
+function segSetName(i,v){ draft.segments[i].name=v; }
 function segSet(i,f,v){ v=parseFloat((v||'').toString().replace(',','.')); if(isNaN(v))v=0; draft.segments[i][f]=v; updateTotals(); }
 function segSetDur(i,part,v){ v=parseInt(v||'0',10)||0; const cur=draft.segments[i].dur; let m=Math.floor(cur/60),s=cur%60; if(part==='m')m=v; else s=v; draft.segments[i].dur=m*60+s; updateTotals(); }
 function renderSegs(){
@@ -313,54 +338,147 @@ function renderSegs(){
 }
 function updateTotals(){ const t=sessionTotals(draft.segments); $('buildTotals').textContent='Total : '+fmt(t.dur)+' · '+(t.dist/1000).toFixed(2)+' km · '+t.dp+' m D+'; }
 function saveSession(){
-  const name=($('sessName').value||'').trim(); if(!name){ alert('Donne un nom à la séance.'); return; }
+  const name=($('sessName').value||'').trim(); if(!name){ $('buildErr').textContent='Donne un nom à la séance.'; return; }
   draft.name=name; const arr=loadSessions(); const i=arr.findIndex(x=>x.id===draft.id);
   if(i>=0) arr[i]=draft; else arr.push(draft); persist(arr); showView('sessions');
 }
 
+// ---- Import GPX ----
+function haversine(a,b){ const R=6371000, toR=x=>x*Math.PI/180;
+  const dLat=toR(b.lat-a.lat), dLon=toR(b.lon-a.lon);
+  const s=Math.sin(dLat/2)**2 + Math.cos(toR(a.lat))*Math.cos(toR(b.lat))*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(s)); }
+$('gpxFile').onchange = async (e)=>{
+  const file=e.target.files[0]; if(!file) return; $('gpxMsg').textContent='';
+  try{
+    const text=await file.text();
+    const doc=new DOMParser().parseFromString(text,'application/xml');
+    if(doc.querySelector('parsererror')) throw new Error('Fichier GPX illisible');
+    const pts=[...doc.getElementsByTagName('trkpt')].map(p=>({
+      lat:parseFloat(p.getAttribute('lat')), lon:parseFloat(p.getAttribute('lon')),
+      ele:parseFloat(p.getElementsByTagName('ele')[0]?.textContent),
+      time:p.getElementsByTagName('time')[0]?.textContent }));
+    if(pts.length<2) throw new Error('Pas assez de points dans la trace');
+    const hasEle=pts.every(p=>!isNaN(p.ele));
+    if(!hasEle) throw new Error('Le GPX ne contient pas d\'altitude');
+    const hasTime=pts.every(p=>p.time);
+    // distance cumulée
+    let cum=0; pts[0].d=0;
+    for(let i=1;i<pts.length;i++){ cum+=haversine(pts[i-1],pts[i]); pts[i].d=cum; }
+    const totalDist=cum;
+    // segmentation par tronçons de GPX_SEG mètres
+    const segs=[]; let start=0;
+    while(start<pts.length-1){
+      let end=start; while(end<pts.length-1 && pts[end].d-pts[start].d < GPX_SEG) end++;
+      const segDist=pts[end].d-pts[start].d; if(segDist<=0){ start=end+1; continue; }
+      const dEle=pts[end].ele-pts[start].ele;
+      let grade=clamp(dEle/segDist*100, 0, 15); // tapis ne descend pas → pente négative = plat
+      let spd=null;
+      if(hasTime){ const dt=(new Date(pts[end].time)-new Date(pts[start].time))/1000; if(dt>0) spd=clamp(segDist/dt*3.6,1,18); }
+      segs.push({ d0:pts[start].d, d1:pts[end].d, grade:+grade.toFixed(1), spd: spd!=null?+spd.toFixed(1):null });
+      start=end;
+    }
+    let dplus=0; for(let i=1;i<pts.length;i++){ const dz=pts[i].ele-pts[i-1].ele; if(dz>0) dplus+=dz; }
+    const sess={ id:'g'+Date.now(), type:'gpx', name:file.name.replace(/\.gpx$/i,''), hasTime, totalDist:Math.round(totalDist), totalDplus:Math.round(dplus), segs };
+    const arr=loadSessions(); arr.push(sess); persist(arr);
+    $('gpxMsg').style.color='var(--go)'; $('gpxMsg').textContent='Importé : '+(totalDist/1000).toFixed(2)+' km, '+Math.round(dplus)+' m D+, '+segs.length+' tronçons'+(hasTime?'':' (sans allure)');
+    renderSessList();
+  }catch(err){ $('gpxMsg').style.color='var(--stop)'; $('gpxMsg').textContent='Erreur : '+err.message; }
+  e.target.value='';
+};
+
 // ================= PLAYBACK =================
-let play=null; // {session,idx,segStart,timer,paused,pausedAt}
-function playFromId(id){ const s=loadSessions().find(x=>x.id===id); if(!s) return; startPlay(s); }
-function startPlay(session){
-  if(!controlChar){ log("Connecte le tapis avant de lancer une séance.",'rx-err'); showView('drive'); return; }
-  resetCounters();
-  play={ session, idx:0, segStart:performance.now(), timer:null, paused:false, pausedAt:0 };
-  $('playName').textContent=session.name;
+let play=null;
+function launch(id){ const s=loadSessions().find(x=>x.id===id); if(!s) return;
+  if(!controlChar){ $('gpxMsg').style.color='var(--stop)'; $('gpxMsg').textContent='Connecte le tapis avant de lancer.'; return; }
+  if(s.type==='gpx') prestartGpx(s); else startInterval(s);
+}
+function resetPlayViews(){ $('pPrestart').style.display='none'; $('pRun').style.display='none'; $('pSpeedCtrl').style.display='none'; }
+
+// --- Intervalles (temps) ---
+function startInterval(session){
+  resetPlayViews(); resetCounters();
+  play={ type:'interval', session, idx:0, segStart:performance.now(), timer:null, paused:false, pausedAt:0 };
+  $('playName').textContent=session.name; $('pTotLbl').textContent='Séance';
+  $('pRun').style.display='block';
   applySeg(session.segments[0]);
-  play.timer=setInterval(playTick,300); renderPlay();
-  showView('play');
+  play.timer=setInterval(playTick,300); renderInterval(); showView('play');
 }
 function applySeg(seg){ sendSpeed(seg.spd); sendIncline(seg.inc); }
-function playTick(){
-  if(!play || play.paused) return;
-  const seg=play.session.segments[play.idx];
-  const inSeg=(performance.now()-play.segStart)/1000;
-  if(inSeg>=seg.dur){
-    play.idx++;
-    if(play.idx>=play.session.segments.length){ playFinish(); return; }
-    play.segStart=performance.now(); applySeg(play.session.segments[play.idx]);
-  }
-  renderPlay();
-}
-function renderPlay(){
+function renderInterval(){
   const segs=play.session.segments, seg=segs[play.idx];
   const inSeg=(performance.now()-play.segStart)/1000, rem=Math.max(0,seg.dur-inSeg);
   $('pSpd').textContent=seg.spd.toFixed(1); $('pInc').textContent=Math.round(seg.inc);
   $('pBlock').textContent=(seg.name&&seg.name.trim()? seg.name : 'Bloc '+(play.idx+1))+' ('+(play.idx+1)+'/'+segs.length+')';
-  $('pRem').textContent=fmt(rem);
-  $('pSegBar').style.width=Math.min(100,inSeg/seg.dur*100)+'%';
-  const totDur=segs.reduce((a,s)=>a+s.dur,0);
-  let done=0; for(let i=0;i<play.idx;i++) done+=segs[i].dur; done+=Math.min(inSeg,seg.dur);
-  $('pTot').textContent=fmt(done)+' / '+fmt(totDur);
-  $('pTotBar').style.width=Math.min(100,done/totDur*100)+'%';
+  $('pRem').textContent=fmt(rem); $('pSegBar').style.width=Math.min(100,inSeg/seg.dur*100)+'%';
+  const totDur=segs.reduce((a,s)=>a+s.dur,0); let done=0; for(let i=0;i<play.idx;i++) done+=segs[i].dur; done+=Math.min(inSeg,seg.dur);
+  $('pTot').textContent=fmt(done)+' / '+fmt(totDur); $('pTotBar').style.width=Math.min(100,done/totDur*100)+'%';
   const nx=segs[play.idx+1];
   $('pNext').textContent=nx? ('Suivant : '+(nx.name&&nx.name.trim()?nx.name+' — ':'')+nx.spd.toFixed(1)+' km/h · '+Math.round(nx.inc)+' % · '+fmt(nx.dur)) : 'Dernier bloc';
 }
+
+// --- GPX (distance) ---
+function prestartGpx(session){
+  resetPlayViews(); play={ type:'gpxpre', session };
+  $('playName').textContent=session.name;
+  $('pPreInfo').textContent=(session.totalDist/1000).toFixed(2)+' km · '+session.totalDplus+' m D+ · '+session.segs.length+' tronçons';
+  $('pModeGpx').disabled=!session.hasTime;
+  $('pModeGpx').textContent=session.hasTime?'Suivre l\'allure du GPX':'Allure du GPX indisponible';
+  $('pPrestart').style.display='block'; showView('play');
+}
+$('pModeGpx').onclick=()=>{ if(play&&play.session) startGpx(play.session,'gpx'); };
+$('pModeFree').onclick=()=>{ if(play&&play.session) startGpx(play.session,'free'); };
+function startGpx(session, mode){
+  resetPlayViews(); resetCounters();
+  play={ type:'gpx', session, mode, timer:null, paused:false, pausedAt:0, base:0, lastInc:null, lastSpd:null };
+  $('playName').textContent=session.name; $('pTotLbl').textContent='Parcours';
+  $('pRun').style.display='block';
+  if(mode==='free') $('pSpeedCtrl').style.display='block';
+  // pente initiale
+  applyGpxAt(0);
+  play.timer=setInterval(gpxTick,300); renderGpx(); showView('play');
+}
+function segAtDist(session, d){ const segs=session.segs; for(let i=0;i<segs.length;i++){ if(d<segs[i].d1) return {seg:segs[i],i}; } return {seg:segs[segs.length-1], i:segs.length-1}; }
+function applyGpxAt(d){
+  const {seg}=segAtDist(play.session,d);
+  if(play.lastInc==null || Math.abs(seg.grade-play.lastInc)>=0.3){ sendIncline(seg.grade); play.lastInc=seg.grade; }
+  if(play.mode==='gpx' && seg.spd!=null && (play.lastSpd==null || Math.abs(seg.spd-play.lastSpd)>=0.1)){ sendSpeed(seg.spd); play.lastSpd=seg.spd; spdTarget=seg.spd; refreshTargets(); }
+}
+function gpxTick(){
+  if(!play||play.paused) return;
+  const covered=distanceM; // depuis reset
+  if(covered>=play.session.totalDist){ log("Parcours GPX terminé."); playStop(true); return; }
+  applyGpxAt(covered); renderGpx();
+}
+function renderGpx(){
+  const s=play.session, covered=Math.min(distanceM,s.totalDist);
+  const {seg,i}=segAtDist(s,covered);
+  $('pInc').textContent=Math.round(seg.grade);
+  $('pSpd').textContent=(play.mode==='gpx' && seg.spd!=null)? seg.spd.toFixed(1) : (curSpeed.toFixed(1));
+  $('pBlock').textContent='Tronçon '+(i+1)+'/'+s.segs.length+' · pente '+seg.grade.toFixed(1)+' %';
+  $('pRem').textContent=((s.totalDist-covered)/1000).toFixed(2)+' km';
+  const p=Math.min(100,covered/s.totalDist*100);
+  $('pSegBar').style.width=p+'%'; $('pTotBar').style.width=p+'%';
+  $('pTot').textContent=(covered/1000).toFixed(2)+' / '+(s.totalDist/1000).toFixed(2)+' km';
+  const nx=s.segs[i+1];
+  $('pNext').textContent=nx? ('À venir : pente '+nx.grade.toFixed(1)+' %') : 'Fin du parcours proche';
+}
+
+// --- Commun ---
+function playTick(){
+  if(!play||play.paused) return;
+  const seg=play.session.segments[play.idx];
+  const inSeg=(performance.now()-play.segStart)/1000;
+  if(inSeg>=seg.dur){ play.idx++;
+    if(play.idx>=play.session.segments.length){ log("Séance terminée."); playStop(true); return; }
+    play.segStart=performance.now(); applySeg(play.session.segments[play.idx]); }
+  renderInterval();
+}
 function playPause(){ if(!play) return;
   if(!play.paused){ play.paused=true; play.pausedAt=performance.now(); $('pPause').textContent='Reprendre'; }
-  else { play.segStart+=performance.now()-play.pausedAt; play.paused=false; $('pPause').textContent='Pause'; renderPlay(); } }
-function playFinish(){ log("Séance terminée."); playStop(true); }
-function playStop(slow){ if(play&&play.timer) clearInterval(play.timer); if(slow&&controlChar) sendSpeed(spdMin); play=null; $('pPause').textContent='Pause'; showView('sessions'); }
+  else { if(play.type==='interval') play.segStart+=performance.now()-play.pausedAt; play.paused=false; $('pPause').textContent='Pause';
+    if(play.type==='interval') renderInterval(); else renderGpx(); } }
+function playStop(slow){ if(play&&play.timer) clearInterval(play.timer); if(slow&&controlChar) sendSpeed(spdMin); play=null; $('pPause').textContent='Pause'; resetPlayViews(); showView('sessions'); }
 
 renderSessList();
 </script>
