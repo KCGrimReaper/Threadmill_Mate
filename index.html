@@ -406,13 +406,17 @@ $('gpxFile').onchange = async (e)=>{
     const text=await file.text();
     const doc=new DOMParser().parseFromString(text,'application/xml');
     if(doc.querySelector('parsererror')) throw new Error('Fichier GPX illisible');
-    const pts=[...doc.getElementsByTagName('trkpt')].map(p=>({
+    // trace (trkpt), itinéraire (rtept) ou waypoints (wpt) — on prend la première source non vide
+    let raw=[...doc.getElementsByTagName('trkpt')];
+    if(raw.length<2) raw=[...doc.getElementsByTagName('rtept')];
+    if(raw.length<2) raw=[...doc.getElementsByTagName('wpt')];
+    const pts=raw.map(p=>({
       lat:parseFloat(p.getAttribute('lat')), lon:parseFloat(p.getAttribute('lon')),
       ele:parseFloat(p.getElementsByTagName('ele')[0]?.textContent),
       time:p.getElementsByTagName('time')[0]?.textContent }));
-    if(pts.length<2) throw new Error('Pas assez de points dans la trace');
+    if(pts.length<2) throw new Error('Aucun point exploitable (ni trace, ni itinéraire) dans le GPX');
     const hasEle=pts.every(p=>!isNaN(p.ele));
-    if(!hasEle) throw new Error('Le GPX ne contient pas d\'altitude');
+    if(!hasEle) throw new Error('Le GPX ne contient pas d\'altitude sur tous les points');
     const hasTime=pts.every(p=>p.time);
     // distance cumulée
     let cum=0; pts[0].d=0;
