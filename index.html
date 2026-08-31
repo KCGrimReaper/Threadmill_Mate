@@ -354,17 +354,17 @@ function renderSessList(){
     let meta, tag;
     if(s.type==='gpx'){ tag='<span class="tag gpx">GPX</span>'; meta=(s.totalDist/1000).toFixed(2)+' km · '+s.totalDplus+' m D+'+(s.hasTime?' · allure dispo':''); }
     else { const t=sessionTotals(s.segments); tag='<span class="tag itv">INTERVALLES</span>'; meta=s.segments.length+' blocs · '+fmt(t.dur)+' · '+(t.dist/1000).toFixed(2)+' km · '+t.dp+' m D+'; }
-    let right;
     if(confirmDel===s.id){
-      right='<span class="muted" style="margin-right:4px">Supprimer ?</span>'+
-        '<button class="run" onclick="doDelete(\''+s.id+'\')" style="background:var(--stop);color:#fff">Oui</button>'+
-        '<button class="run" onclick="cancelDelete()" style="background:var(--surface2);color:var(--text)">Non</button>';
-    } else {
-      const edit = s.type==='gpx' ? '' : '<button class="run" onclick="editSession(\''+s.id+'\')" style="background:var(--surface2);color:var(--text)">Éditer</button>';
-      right=edit+'<button class="run" onclick="launch(\''+s.id+'\')">Lancer</button>'+
-        '<button class="run" onclick="askDelete(\''+s.id+'\')" style="background:transparent;color:var(--stop);padding:10px 10px">🗑</button>';
+      return '<div class="sesscard" style="flex-direction:column;align-items:stretch;gap:10px">'+
+        '<div><div class="t">'+escapeHtml(s.name)+tag+'</div><div class="m">'+meta+'</div></div>'+
+        '<div style="display:flex;gap:8px"><span class="muted" style="flex:1;align-self:center">Supprimer cette séance ?</span>'+
+        '<button class="run" onclick="doDelete(\''+s.id+'\')" style="background:var(--stop);color:#fff">Supprimer</button>'+
+        '<button class="run" onclick="cancelDelete()" style="background:var(--surface2);color:var(--text)">Annuler</button></div></div>';
     }
-    return '<div class="sesscard"><div><div class="t">'+escapeHtml(s.name)+tag+'</div><div class="m">'+meta+'</div></div>'+
+    const edit = s.type==='gpx' ? '' : '<button class="run" onclick="editSession(\''+s.id+'\')" style="background:var(--surface2);color:var(--text)">Éditer</button>';
+    const right=edit+'<button class="run" onclick="launch(\''+s.id+'\')">Lancer</button>'+
+      '<button class="run" onclick="askDelete(\''+s.id+'\')" style="background:transparent;color:var(--stop);padding:10px 10px">🗑</button>';
+    return '<div class="sesscard"><div style="min-width:0"><div class="t">'+escapeHtml(s.name)+tag+'</div><div class="m">'+meta+'</div></div>'+
     '<div style="display:flex;gap:6px;align-items:center;flex-shrink:0">'+right+'</div></div>';
   }).join('');
 }
