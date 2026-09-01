@@ -111,8 +111,11 @@
         <button id="spdPlus" class="step" disabled>+</button></div></div>
     <div class="acts"><button id="start" class="go" disabled>Démarrer</button>
       <button id="stop" class="stopb" disabled>Arrêter</button></div>
-    <button id="exportFitBtn" class="cta" onclick="exportFit()" disabled style="margin-bottom:8px">Exporter (FIT — D+ dans Strava)</button>
-    <button id="exportBtn" class="cta ghost" onclick="exportTcx()" disabled style="margin-bottom:8px">Exporter (TCX)</button>
+    <button id="exportBtn" class="cta" onclick="toggleExport()" disabled style="margin-bottom:8px">Exporter la course</button>
+    <div id="exportOpts" style="display:none;margin-bottom:8px">
+      <button class="cta" onclick="exportFit()" style="margin-bottom:6px">Fichier Strava (FIT · D+ + trace)</button>
+      <button class="cta ghost" onclick="exportTcx()">Fichier TCX</button>
+    </div>
     <p class="muted">La courroie se lance au bouton physique du tapis (démarrage à distance verrouillé). L'app pilote allure et pente.</p>
   </div>
 
@@ -189,7 +192,7 @@ const GPX_SEG=50; // longueur de lissage du profil, en mètres
 let device=null, controlChar=null, hrDevice=null, wakeLock=null;
 let elapsedMs=0, lastTick=null, timerId=null, curSpeed=0, curGrade=0;
 let distanceM=0, dPlusM=0, lastDataTs=null;
-let curHr=0, rec=[], recTimer=null;
+let curHr=0, rec=[], recTimer=null, activeRoute=null;
 let spdTarget=2.0, inclTarget=1.0, spdMin=1, spdMax=18, spdUi=0.1, inclMin=0, inclMax=15, inclUi=1;
 
 const $=id=>document.getElementById(id);
@@ -236,9 +239,10 @@ async function readRanges(svc){
   }catch(e){}
   refreshTargets();
 }
-function resetCounters(){ distanceM=0; dPlusM=0; lastDataTs=null; rec=[]; $('distance').textContent='0'; $('dplus').textContent='0'; if($('exportBtn')) $('exportBtn').disabled=true; if($('exportFitBtn')) $('exportFitBtn').disabled=true; }
+function resetCounters(){ distanceM=0; dPlusM=0; lastDataTs=null; rec=[]; activeRoute=null; $('distance').textContent='0'; $('dplus').textContent='0'; if($('exportBtn')) $('exportBtn').disabled=true; if($('exportOpts')) $('exportOpts').style.display='none'; }
+function toggleExport(){ const o=$('exportOpts'); o.style.display = o.style.display==='none'?'block':'none'; }
 function startRecorder(){ if(recTimer) clearInterval(recTimer); recTimer=setInterval(()=>{
-  if(curSpeed>0){ rec.push({ t:new Date().toISOString(), dist:distanceM, spd:curSpeed, alt:dPlusM, hr:curHr }); if($('exportBtn')) $('exportBtn').disabled=false; if($('exportFitBtn')) $('exportFitBtn').disabled=false; }
+  if(curSpeed>0){ rec.push({ t:new Date().toISOString(), dist:distanceM, spd:curSpeed, alt:dPlusM, hr:curHr }); if($('exportBtn')) $('exportBtn').disabled=false; }
 }, 1000); }
 
 // ---- Export TCX ----
@@ -272,6 +276,7 @@ function exportTcx(){
   const blob=new Blob([xml],{type:'application/vnd.garmin.tcx+xml'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fname; a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+  $('exportOpts').style.display='none';
   log("Export TCX : "+fname+" ("+rec.length+" points)",'rx-ok');
 }
 
@@ -284,51 +289,61 @@ function fitCRC(bytes){
     tmp=t[crc&0xF]; crc=(crc>>4)&0x0FFF; crc=crc^tmp^t[(b>>4)&0xF]; }
   return crc&0xFFFF;
 }
-function buildFit(samples){
+function posAt(route, dd){
+  if(dd<=route[0].d) return route[0];
+  const last=route[route.length-1]; if(dd>=last.d) return last;
+  let lo=0, hi=route.length-1;
+  while(hi-lo>1){ const m=(lo+hi)>>1; if(route[m].d<=dd) lo=m; else hi=m; }
+  const a=route[lo], b=route[hi], span=b.d-a.d, f=span>0?(dd-a.d)/span:0;
+  return { lat:a.lat+(b.lat-a.lat)*f, lon:a.lon+(b.lon-a.lon)*f, ele:a.ele+(b.ele-a.ele)*f };
+}
+function buildFit(samples, route){
   if(samples.length<2) return null;
   const D=[];
   const u8=v=>D.push(v&0xFF);
   const u16=v=>{ D.push(v&0xFF); D.push((v>>8)&0xFF); };
   const u32=v=>{ v=v>>>0; D.push(v&0xFF); D.push((v>>>8)&0xFF); D.push((v>>>16)&0xFF); D.push((v>>>24)&0xFF); };
   const EPOCH=631065600, toFit=iso=>Math.round(new Date(iso).getTime()/1000-EPOCH);
+  const SC=2147483648/180, sc=deg=>Math.round(deg*SC);
   const t0=toFit(samples[0].t), t1=toFit(samples[samples.length-1].t), totalSec=Math.max(1,t1-t0);
   const totalDist=samples[samples.length-1].dist, totalAsc=Math.round(samples[samples.length-1].alt);
+  const hasPos=!!(route && route.length>1);
   const def=(local,global,fields)=>{ u8(0x40|local); u8(0); u8(0); u16(global); u8(fields.length); fields.forEach(f=>{u8(f[0]);u8(f[1]);u8(f[2]);}); };
 
-  // file_id
   def(0,0,[[0,1,0x00],[1,2,0x84],[2,2,0x84],[4,4,0x86],[3,4,0x8C]]);
   u8(0); u8(4); u16(255); u16(0); u32(toFit(new Date().toISOString())); u32(0);
-  // record (def local 1)
-  def(1,20,[[253,4,0x86],[5,4,0x86],[2,2,0x84],[6,2,0x84],[3,1,0x02]]);
+
+  // record : avec ou sans position
+  const recFields=[[253,4,0x86],[5,4,0x86],[2,2,0x84],[6,2,0x84],[3,1,0x02]];
+  if(hasPos){ recFields.push([0,4,0x85],[1,4,0x85]); } // position_lat, position_long (sint32)
+  def(1,20,recFields);
   for(const s of samples){
-    u8(1); u32(toFit(s.t)); u32(Math.round(s.dist*100)); u16(Math.round((s.alt+500)*5));
-    u16(Math.round((s.spd/3.6)*1000)); u8(s.hr>0?Math.round(s.hr):0xFF);
+    u8(1); u32(toFit(s.t)); u32(Math.round(s.dist*100));
+    if(hasPos){ const p=posAt(route,s.dist); u16(Math.round((p.ele+500)*5)); u16(Math.round((s.spd/3.6)*1000)); u8(s.hr>0?Math.round(s.hr):0xFF); u32(sc(p.lat)); u32(sc(p.lon)); }
+    else { u16(Math.round((s.alt+500)*5)); u16(Math.round((s.spd/3.6)*1000)); u8(s.hr>0?Math.round(s.hr):0xFF); }
   }
-  // lap
   def(2,19,[[253,4,0x86],[2,4,0x86],[7,4,0x86],[8,4,0x86],[9,4,0x86],[21,2,0x84]]);
   u8(2); u32(t1); u32(t0); u32(totalSec*1000); u32(totalSec*1000); u32(Math.round(totalDist*100)); u16(totalAsc);
-  // session
   def(3,18,[[253,4,0x86],[2,4,0x86],[7,4,0x86],[8,4,0x86],[9,4,0x86],[22,2,0x84],[5,1,0x00],[6,1,0x00],[26,2,0x84],[25,2,0x84]]);
-  u8(3); u32(t1); u32(t0); u32(totalSec*1000); u32(totalSec*1000); u32(Math.round(totalDist*100)); u16(totalAsc); u8(1); u8(1); u16(1); u16(0);
-  // activity
+  u8(3); u32(t1); u32(t0); u32(totalSec*1000); u32(totalSec*1000); u32(Math.round(totalDist*100)); u16(totalAsc); u8(1); u8(hasPos?0:1); u16(1); u16(0);
   def(4,34,[[253,4,0x86],[0,4,0x86],[1,2,0x84],[2,1,0x00],[3,1,0x00],[4,1,0x00]]);
   u8(4); u32(t1); u32(totalSec*1000); u16(1); u8(0); u8(26); u8(1);
 
-  // en-tête 14 octets
   const h=[14,0x20, 2140&0xFF,(2140>>8)&0xFF, D.length&0xFF,(D.length>>8)&0xFF,(D.length>>16)&0xFF,(D.length>>24)&0xFF, 0x2E,0x46,0x49,0x54];
   const hcrc=fitCRC(h.slice(0,12)); h.push(hcrc&0xFF,(hcrc>>8)&0xFF);
   const body=h.concat(D); const fcrc=fitCRC(body);
   return new Uint8Array(body.concat([fcrc&0xFF,(fcrc>>8)&0xFF]));
 }
 function exportFit(){
-  const bin=buildFit(rec);
+  const bin=buildFit(rec, activeRoute);
   if(!bin){ log("Rien à exporter (pas encore de données).",'rx-err'); return; }
   const d=new Date(), pad=n=>String(n).padStart(2,'0');
   const fname='threadmill-'+d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+'-'+pad(d.getHours())+pad(d.getMinutes())+'.fit';
   const blob=new Blob([bin],{type:'application/octet-stream'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fname; a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),2000);
-  log("Export FIT : "+fname+" ("+rec.length+" pts, "+Math.round(rec[rec.length-1].alt)+" m D+)",'rx-ok');
+  $('exportOpts').style.display='none';
+  log("Export FIT : "+fname+" ("+rec.length+" pts, "+Math.round(rec[rec.length-1].alt)+" m D+"+(activeRoute?", trace GPS":"")+")",'rx-ok');
 }
 function startTimer(){ elapsedMs=0; lastTick=performance.now(); if(timerId) clearInterval(timerId); timerId=setInterval(tick,500); tick(); }
 function stopTimer(){ if(timerId){ clearInterval(timerId); timerId=null; } }
@@ -497,7 +512,8 @@ $('gpxFile').onchange = async (e)=>{
       start=end;
     }
     let dplus=0; for(let i=1;i<pts.length;i++){ const dz=pts[i].ele-pts[i-1].ele; if(dz>0) dplus+=dz; }
-    const sess={ id:'g'+Date.now(), type:'gpx', name:file.name.replace(/\.gpx$/i,''), hasTime, totalDist:Math.round(totalDist), totalDplus:Math.round(dplus), segs };
+    const sess={ id:'g'+Date.now(), type:'gpx', name:file.name.replace(/\.gpx$/i,''), hasTime, totalDist:Math.round(totalDist), totalDplus:Math.round(dplus), segs,
+      track: pts.map(p=>({ d:+p.d.toFixed(1), lat:p.lat, lon:p.lon, ele:+p.ele.toFixed(1) })) };
     const arr=loadSessions(); arr.push(sess); persist(arr);
     $('gpxMsg').style.color='var(--go)'; $('gpxMsg').textContent='Importé : '+(totalDist/1000).toFixed(2)+' km, '+Math.round(dplus)+' m D+, '+segs.length+' tronçons'+(hasTime?'':' · profil d\'altitude seul (allure non incluse dans le fichier)');
     renderSessList();
@@ -553,6 +569,7 @@ function startGpx(session, mode){
   $('playName').textContent=session.name; $('pTotLbl').textContent='Parcours';
   $('pRun').style.display='block';
   if(mode==='free') $('pSpeedCtrl').style.display='block';
+  activeRoute = session.track && session.track.length>1 ? session.track : null;
   applyGpxAt(0); // pré-règle la pente de départ
   play.timer=setInterval(gpxTick,300); renderGpx(); showView('play');
 }
