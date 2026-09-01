@@ -86,9 +86,10 @@
     <button id="pairHr" class="cta ghost">Appairer un capteur cardiaque</button>
   </div>
 
-  <div class="tabs">
+  <div class="tabs" style="grid-template-columns:1fr 1fr 1fr">
     <button id="tabDrive" class="act" onclick="showView('drive')">Pilotage</button>
     <button id="tabSess" onclick="showView('sessions')">Séances</button>
+    <button id="tabHist" onclick="showView('history')">Historique</button>
   </div>
 
   <!-- PILOTAGE -->
@@ -111,11 +112,6 @@
         <button id="spdPlus" class="step" disabled>+</button></div></div>
     <div class="acts"><button id="start" class="go" disabled>Démarrer</button>
       <button id="stop" class="stopb" disabled>Arrêter</button></div>
-    <button id="exportBtn" class="cta" onclick="toggleExport()" disabled style="margin-bottom:8px">Exporter la course</button>
-    <div id="exportOpts" style="display:none;margin-bottom:8px">
-      <button class="cta" onclick="exportFit()" style="margin-bottom:6px">Fichier Strava (FIT · D+ + trace)</button>
-      <button class="cta ghost" onclick="exportTcx()">Fichier TCX</button>
-    </div>
     <p class="muted">La courroie se lance au bouton physique du tapis (démarrage à distance verrouillé). L'app pilote allure et pente.</p>
   </div>
 
@@ -128,6 +124,12 @@
     <input type="file" id="gpxFile" accept=".gpx" style="display:none">
     <p id="gpxMsg" class="err"></p>
     <div id="sessList"></div>
+  </div>
+
+  <!-- HISTORIQUE -->
+  <div id="view-history" style="display:none">
+    <p class="muted" id="histHint" style="margin:0 0 12px">Tes courses terminées apparaissent ici.</p>
+    <div id="histList"></div>
   </div>
 
   <!-- BUILDER -->
@@ -203,9 +205,9 @@ function fmt(t){ t=Math.max(0,Math.round(t)); const m=Math.floor(t/60),s=t%60; r
 function escapeHtml(s){ return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
 let view='drive';
-function showView(v){ view=v; ['drive','sessions','build','play'].forEach(x=>$('view-'+x).style.display=x===v?'block':'none');
-  $('tabDrive').classList.toggle('act', v==='drive'); $('tabSess').classList.toggle('act', v==='sessions'||v==='build');
-  if(v==='sessions'){ $('gpxMsg').textContent=''; renderSessList(); } }
+function showView(v){ view=v; ['drive','sessions','build','play','history'].forEach(x=>$('view-'+x).style.display=x===v?'block':'none');
+  $('tabDrive').classList.toggle('act', v==='drive'); $('tabSess').classList.toggle('act', v==='sessions'||v==='build'); $('tabHist').classList.toggle('act', v==='history');
+  if(v==='sessions'){ $('gpxMsg').textContent=''; renderSessList(); } if(v==='history') renderHistList(); }
 
 function ctrlButtons(on){ ['incMinus','incPlus','spdMinus','spdPlus','start','stop','incInput','spdInput'].forEach(id=>$(id).disabled=!on); }
 function setConnected(on){ $('dot').classList.toggle('on',on); $('chipTxt').textContent=on?'Connecté':'Hors ligne';
@@ -228,7 +230,7 @@ $('connect').onclick = async () => {
   }catch(err){ log("ERR "+err,'rx-err'); }
 };
 $('disconnect').onclick = ()=>{ if(device&&device.gatt.connected) device.gatt.disconnect(); };
-function onDisconnect(){ setConnected(false); stopTimer(); releaseWakeLock(); log("Déconnecté."); }
+function onDisconnect(){ archiveRun(); setConnected(false); stopTimer(); releaseWakeLock(); log("Déconnecté."); }
 
 async function readRanges(svc){
   try{ const d=await (await svc.getCharacteristic(SPD_RANGE)).readValue();
@@ -239,10 +241,9 @@ async function readRanges(svc){
   }catch(e){}
   refreshTargets();
 }
-function resetCounters(){ distanceM=0; dPlusM=0; lastDataTs=null; rec=[]; activeRoute=null; $('distance').textContent='0'; $('dplus').textContent='0'; if($('exportBtn')) $('exportBtn').disabled=true; if($('exportOpts')) $('exportOpts').style.display='none'; }
-function toggleExport(){ const o=$('exportOpts'); o.style.display = o.style.display==='none'?'block':'none'; }
+function resetCounters(){ archiveRun(); distanceM=0; dPlusM=0; lastDataTs=null; rec=[]; activeRoute=null; $('distance').textContent='0'; $('dplus').textContent='0'; }
 function startRecorder(){ if(recTimer) clearInterval(recTimer); recTimer=setInterval(()=>{
-  if(curSpeed>0){ rec.push({ t:new Date().toISOString(), dist:distanceM, spd:curSpeed, alt:dPlusM, hr:curHr }); if($('exportBtn')) $('exportBtn').disabled=false; }
+  if(curSpeed>0){ rec.push({ t:new Date().toISOString(), dist:distanceM, spd:curSpeed, alt:dPlusM, hr:curHr }); }
 }, 1000); }
 
 // ---- Export TCX ----
@@ -268,17 +269,9 @@ function buildTcx(samples){
    +'<Creator xsi:type="Device_t" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><Name>Threadmill Mate</Name></Creator>'
    +'</Activity></Activities></TrainingCenterDatabase>';
 }
-function exportTcx(){
-  const xml=buildTcx(rec);
-  if(!xml){ log("Rien à exporter (pas encore de données de course).",'rx-err'); return; }
-  const d=new Date(), pad=n=>String(n).padStart(2,'0');
-  const fname='threadmill-'+d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+'-'+pad(d.getHours())+pad(d.getMinutes())+'.tcx';
-  const blob=new Blob([xml],{type:'application/vnd.garmin.tcx+xml'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fname; a.click();
-  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
-  $('exportOpts').style.display='none';
-  log("Export TCX : "+fname+" ("+rec.length+" points)",'rx-ok');
-}
+function fnameNow(ext){ const d=new Date(), pad=n=>String(n).padStart(2,'0'); return 'threadmill-'+d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+'-'+pad(d.getHours())+pad(d.getMinutes())+'.'+ext; }
+function downloadBlob(blob, fname){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fname; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000); }
+function dlTcx(samples){ const xml=buildTcx(samples); if(!xml){ log("Course trop courte pour exporter.",'rx-err'); return; } downloadBlob(new Blob([xml],{type:'application/vnd.garmin.tcx+xml'}), fnameNow('tcx')); }
 
 // ---- Export FIT (porte le D+ dans Strava, comme Zwift) ----
 function fitCRC(bytes){
@@ -325,7 +318,7 @@ function buildFit(samples, route){
   def(2,19,[[253,4,0x86],[2,4,0x86],[7,4,0x86],[8,4,0x86],[9,4,0x86],[21,2,0x84]]);
   u8(2); u32(t1); u32(t0); u32(totalSec*1000); u32(totalSec*1000); u32(Math.round(totalDist*100)); u16(totalAsc);
   def(3,18,[[253,4,0x86],[2,4,0x86],[7,4,0x86],[8,4,0x86],[9,4,0x86],[22,2,0x84],[5,1,0x00],[6,1,0x00],[26,2,0x84],[25,2,0x84]]);
-  u8(3); u32(t1); u32(t0); u32(totalSec*1000); u32(totalSec*1000); u32(Math.round(totalDist*100)); u16(totalAsc); u8(1); u8(hasPos?0:1); u16(1); u16(0);
+  u8(3); u32(t1); u32(t0); u32(totalSec*1000); u32(totalSec*1000); u32(Math.round(totalDist*100)); u16(totalAsc); u8(1); u8(hasPos?0:17); u16(1); u16(0);
   def(4,34,[[253,4,0x86],[0,4,0x86],[1,2,0x84],[2,1,0x00],[3,1,0x00],[4,1,0x00]]);
   u8(4); u32(t1); u32(totalSec*1000); u16(1); u8(0); u8(26); u8(1);
 
@@ -334,16 +327,44 @@ function buildFit(samples, route){
   const body=h.concat(D); const fcrc=fitCRC(body);
   return new Uint8Array(body.concat([fcrc&0xFF,(fcrc>>8)&0xFF]));
 }
-function exportFit(){
-  const bin=buildFit(rec, activeRoute);
-  if(!bin){ log("Rien à exporter (pas encore de données).",'rx-err'); return; }
-  const d=new Date(), pad=n=>String(n).padStart(2,'0');
-  const fname='threadmill-'+d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+'-'+pad(d.getHours())+pad(d.getMinutes())+'.fit';
-  const blob=new Blob([bin],{type:'application/octet-stream'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fname; a.click();
-  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
-  $('exportOpts').style.display='none';
-  log("Export FIT : "+fname+" ("+rec.length+" pts, "+Math.round(rec[rec.length-1].alt)+" m D+"+(activeRoute?", trace GPS":"")+")",'rx-ok');
+function dlFit(samples, route){ const bin=buildFit(samples, route); if(!bin){ log("Course trop courte pour exporter.",'rx-err'); return; } downloadBlob(new Blob([bin],{type:'application/octet-stream'}), fnameNow('fit')); }
+
+// ================= HISTORIQUE =================
+function loadHistory(){ try{ return JSON.parse(localStorage.getItem('tm_history')||'[]'); }catch(e){ return []; } }
+function persistHist(arr){ try{ localStorage.setItem('tm_history', JSON.stringify(arr)); }catch(e){ log("Stockage plein : anciennes courses à supprimer.",'rx-err'); } }
+function archiveRun(){
+  if(!rec || rec.length<2) return;
+  // sous-échantillonnage 1 point / 3 s pour tenir dans le stockage
+  const s=[]; for(let i=0;i<rec.length;i+=3) s.push(rec[i]); if(s[s.length-1]!==rec[rec.length-1]) s.push(rec[rec.length-1]);
+  const last=rec[rec.length-1], first=rec[0];
+  const entry={ id:'r'+Date.now(), date:first.t, dist:Math.round(last.dist), dplus:Math.round(last.alt),
+    dur:Math.round((new Date(last.t)-new Date(first.t))/1000), hasRoute:!!activeRoute,
+    route: activeRoute||null, samples:s };
+  const arr=loadHistory(); arr.unshift(entry); while(arr.length>12) arr.pop(); persistHist(arr);
+  rec=[]; // évite un double archivage
+}
+let histMenu=null;
+function toggleHistMenu(id){ histMenu = histMenu===id?null:id; renderHistList(); }
+function histFit(id){ const e=loadHistory().find(x=>x.id===id); if(e){ dlFit(e.samples, e.route); histMenu=null; renderHistList(); } }
+function histTcx(id){ const e=loadHistory().find(x=>x.id===id); if(e){ dlTcx(e.samples); histMenu=null; renderHistList(); } }
+function histDel(id){ persistHist(loadHistory().filter(x=>x.id!==id)); histMenu=null; renderHistList(); }
+function renderHistList(){
+  const arr=loadHistory(); const el=$('histList');
+  if(!arr.length){ el.innerHTML='<p class="muted">Aucune course enregistrée pour l\'instant.</p>'; return; }
+  el.innerHTML=arr.map(e=>{
+    const dt=new Date(e.date), pad=n=>String(n).padStart(2,'0');
+    const when=pad(dt.getDate())+'/'+pad(dt.getMonth()+1)+' '+pad(dt.getHours())+':'+pad(dt.getMinutes());
+    const meta=(e.dist/1000).toFixed(2)+' km · '+e.dplus+' m D+ · '+fmt(e.dur)+(e.hasRoute?' · trace GPS':'');
+    let card='<div class="sesscard"><div style="min-width:0"><div class="t">'+when+'</div><div class="m">'+meta+'</div></div>'+
+      '<button class="run" onclick="toggleHistMenu(\''+e.id+'\')" style="background:var(--surface2);color:var(--text);font-size:18px;padding:8px 14px">···</button></div>';
+    if(histMenu===e.id){
+      card+='<div class="sesscard" style="margin-top:-6px"><div style="display:flex;gap:8px;flex-wrap:wrap;width:100%">'+
+        '<button class="run" onclick="histFit(\''+e.id+'\')">Télécharger FIT</button>'+
+        '<button class="run" onclick="histTcx(\''+e.id+'\')" style="background:var(--surface2);color:var(--text)">TCX</button>'+
+        '<button class="run" onclick="histDel(\''+e.id+'\')" style="background:transparent;color:var(--stop)">Supprimer</button></div></div>';
+    }
+    return card;
+  }).join('');
 }
 function startTimer(){ elapsedMs=0; lastTick=performance.now(); if(timerId) clearInterval(timerId); timerId=setInterval(tick,500); tick(); }
 function stopTimer(){ if(timerId){ clearInterval(timerId); timerId=null; } }
@@ -617,7 +638,7 @@ function playPause(){ if(!play) return;
   if(!play.paused){ play.paused=true; $('pPause').textContent='Reprendre'; }
   else { play.paused=false; play.lastTs=performance.now(); $('pPause').textContent='Pause';
     if(play.type==='interval') renderInterval(); else renderGpx(); } }
-function playStop(slow){ if(play&&play.timer) clearInterval(play.timer); if(slow&&controlChar) sendSpeed(spdMin); play=null; $('pPause').textContent='Pause'; resetPlayViews(); showView('sessions'); }
+function playStop(slow){ if(play&&play.timer) clearInterval(play.timer); if(slow&&controlChar) sendSpeed(spdMin); play=null; $('pPause').textContent='Pause'; archiveRun(); resetPlayViews(); showView('sessions'); }
 
 renderSessList();
 </script>
