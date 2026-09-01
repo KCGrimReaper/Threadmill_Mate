@@ -185,6 +185,16 @@
     </div>
   </div>
 
+  <div id="histModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:50;align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this)closeHistModal()">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:18px;width:100%;max-width:360px;padding:16px">
+      <div class="muted" id="histModalTitle" style="text-align:center;margin-bottom:14px"></div>
+      <button class="cta" onclick="histFit(histSel)" style="margin-bottom:8px">Télécharger FIT</button>
+      <button class="cta ghost" onclick="histTcx(histSel)" style="margin-bottom:8px">Télécharger TCX</button>
+      <button class="cta" onclick="histDel(histSel)" style="margin-bottom:8px;background:var(--stop);color:#fff">Supprimer</button>
+      <button class="cta ghost" onclick="closeHistModal()">Annuler</button>
+    </div>
+  </div>
+
   <details><summary>Journal technique</summary><div id="log"></div></details>
 
 <script>
@@ -318,7 +328,7 @@ function buildFit(samples, route){
   def(2,19,[[253,4,0x86],[2,4,0x86],[7,4,0x86],[8,4,0x86],[9,4,0x86],[21,2,0x84]]);
   u8(2); u32(t1); u32(t0); u32(totalSec*1000); u32(totalSec*1000); u32(Math.round(totalDist*100)); u16(totalAsc);
   def(3,18,[[253,4,0x86],[2,4,0x86],[7,4,0x86],[8,4,0x86],[9,4,0x86],[22,2,0x84],[5,1,0x00],[6,1,0x00],[26,2,0x84],[25,2,0x84]]);
-  u8(3); u32(t1); u32(t0); u32(totalSec*1000); u32(totalSec*1000); u32(Math.round(totalDist*100)); u16(totalAsc); u8(1); u8(hasPos?0:17); u16(1); u16(0);
+  u8(3); u32(t1); u32(t0); u32(totalSec*1000); u32(totalSec*1000); u32(Math.round(totalDist*100)); u16(totalAsc); u8(1); u8(hasPos?0:58); u16(1); u16(0);
   def(4,34,[[253,4,0x86],[0,4,0x86],[1,2,0x84],[2,1,0x00],[3,1,0x00],[4,1,0x00]]);
   u8(4); u32(t1); u32(totalSec*1000); u16(1); u8(0); u8(26); u8(1);
 
@@ -343,11 +353,15 @@ function archiveRun(){
   const arr=loadHistory(); arr.unshift(entry); while(arr.length>12) arr.pop(); persistHist(arr);
   rec=[]; // évite un double archivage
 }
-let histMenu=null;
-function toggleHistMenu(id){ histMenu = histMenu===id?null:id; renderHistList(); }
-function histFit(id){ const e=loadHistory().find(x=>x.id===id); if(e){ dlFit(e.samples, e.route); histMenu=null; renderHistList(); } }
-function histTcx(id){ const e=loadHistory().find(x=>x.id===id); if(e){ dlTcx(e.samples); histMenu=null; renderHistList(); } }
-function histDel(id){ persistHist(loadHistory().filter(x=>x.id!==id)); histMenu=null; renderHistList(); }
+let histSel=null;
+function openHistModal(id){ const e=loadHistory().find(x=>x.id===id); if(!e) return; histSel=id;
+  const dt=new Date(e.date), pad=n=>String(n).padStart(2,'0');
+  $('histModalTitle').textContent=pad(dt.getDate())+'/'+pad(dt.getMonth()+1)+' '+pad(dt.getHours())+':'+pad(dt.getMinutes())+' · '+(e.dist/1000).toFixed(2)+' km · '+e.dplus+' m D+';
+  $('histModal').style.display='flex'; }
+function closeHistModal(){ $('histModal').style.display='none'; histSel=null; }
+function histFit(id){ const e=loadHistory().find(x=>x.id===id); if(e) dlFit(e.samples, e.route); closeHistModal(); }
+function histTcx(id){ const e=loadHistory().find(x=>x.id===id); if(e) dlTcx(e.samples); closeHistModal(); }
+function histDel(id){ persistHist(loadHistory().filter(x=>x.id!==id)); closeHistModal(); renderHistList(); }
 function renderHistList(){
   const arr=loadHistory(); const el=$('histList');
   if(!arr.length){ el.innerHTML='<p class="muted">Aucune course enregistrée pour l\'instant.</p>'; return; }
@@ -355,15 +369,8 @@ function renderHistList(){
     const dt=new Date(e.date), pad=n=>String(n).padStart(2,'0');
     const when=pad(dt.getDate())+'/'+pad(dt.getMonth()+1)+' '+pad(dt.getHours())+':'+pad(dt.getMinutes());
     const meta=(e.dist/1000).toFixed(2)+' km · '+e.dplus+' m D+ · '+fmt(e.dur)+(e.hasRoute?' · trace GPS':'');
-    let card='<div class="sesscard"><div style="min-width:0"><div class="t">'+when+'</div><div class="m">'+meta+'</div></div>'+
-      '<button class="run" onclick="toggleHistMenu(\''+e.id+'\')" style="background:var(--surface2);color:var(--text);font-size:18px;padding:8px 14px">···</button></div>';
-    if(histMenu===e.id){
-      card+='<div class="sesscard" style="margin-top:-6px"><div style="display:flex;gap:8px;flex-wrap:wrap;width:100%">'+
-        '<button class="run" onclick="histFit(\''+e.id+'\')">Télécharger FIT</button>'+
-        '<button class="run" onclick="histTcx(\''+e.id+'\')" style="background:var(--surface2);color:var(--text)">TCX</button>'+
-        '<button class="run" onclick="histDel(\''+e.id+'\')" style="background:transparent;color:var(--stop)">Supprimer</button></div></div>';
-    }
-    return card;
+    return '<div class="sesscard"><div style="min-width:0"><div class="t">'+when+'</div><div class="m">'+meta+'</div></div>'+
+      '<button class="run" onclick="openHistModal(\''+e.id+'\')" style="background:var(--surface2);color:var(--text);font-size:18px;padding:8px 14px">···</button></div>';
   }).join('');
 }
 function startTimer(){ elapsedMs=0; lastTick=performance.now(); if(timerId) clearInterval(timerId); timerId=setInterval(tick,500); tick(); }
@@ -602,7 +609,8 @@ function applyGpxAt(d){
 }
 function gpxTick(){
   if(!play||play.paused) return;
-  if(curSpeed>0 && !play.started){ play.started=true; play.lastInc=null; play.lastSpd=null; } // force le renvoi pente/allure
+  if(curSpeed>0 && !play.started){ play.started=true; play.lastInc=null; play.lastSpd=null; play.lastAssert=performance.now(); }
+  if(play.started && (performance.now()-(play.lastAssert||0))>2000){ play.lastInc=null; if(play.mode==='gpx') play.lastSpd=null; play.lastAssert=performance.now(); } // repousse la pente régulièrement
   const covered=distanceM;
   if(play.started && covered>=play.session.totalDist){ log("Parcours GPX terminé."); playStop(true); return; }
   applyGpxAt(covered); renderGpx();
@@ -628,10 +636,11 @@ function playTick(){
   const now=performance.now(); const dt=(now-play.lastTs)/1000; play.lastTs=now;
   if(!play||play.paused) return;
   const seg=play.session.segments[play.idx];
-  if(curSpeed>0){ if(!play.started){ play.started=true; applySeg(seg); } play.segElapsed+=dt; }   // ré-applique dès mouvement, puis progresse
+  if(curSpeed>0){ if(!play.started){ play.started=true; applySeg(seg); play.lastAssert=now; } play.segElapsed+=dt; }
+  if(play.started && (now-(play.lastAssert||0))>2000 && Math.abs(curSpeed-seg.spd)>0.3){ sendSpeed(seg.spd); sendIncline(seg.inc); play.lastAssert=now; } // repousse la consigne si le tapis ne suit pas
   if(play.started && play.segElapsed>=seg.dur){ play.idx++; play.segElapsed=0;
     if(play.idx>=play.session.segments.length){ log("Séance terminée."); playStop(true); return; }
-    applySeg(play.session.segments[play.idx]); }
+    applySeg(play.session.segments[play.idx]); play.lastAssert=now; }
   renderInterval();
 }
 function playPause(){ if(!play) return;
