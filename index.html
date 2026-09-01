@@ -149,6 +149,7 @@
     </div>
 
     <div id="pRun" style="display:none">
+      <div id="pReady" style="display:none;background:rgba(255,138,61,.12);border:1px solid #4a3418;color:var(--accent);border-radius:10px;padding:10px 12px;font-size:12.5px;margin-bottom:12px;text-align:center">Séance chargée · lance la courroie au bouton du tapis pour démarrer</div>
       <div class="prow">
         <div class="pbig"><div class="lbl">Allure cible</div><div class="tgt"><span id="pSpd">—</span><small style="font-size:16px;color:var(--muted)"> km/h</small></div></div>
         <div class="pbig"><div class="lbl">Pente cible</div><div class="tgt"><span id="pInc">—</span><small style="font-size:16px;color:var(--muted)"> %</small></div></div>
@@ -293,9 +294,13 @@ $('pairHr').onclick = async () => {
   }catch(err){ log("FC : "+err.message,'rx-err'); }
 };
 
-async function sendControl(bytes, label){
-  try{ await controlChar.writeValueWithResponse(new Uint8Array(bytes)); log("TX "+label,'tx'); }
-  catch(err){ log("TX échec ("+label+") : "+err.message,'rx-err'); }
+let gattQueue=Promise.resolve();
+function sendControl(bytes, label){
+  gattQueue = gattQueue.then(async()=>{
+    try{ await controlChar.writeValueWithResponse(new Uint8Array(bytes)); log("TX "+label,'tx'); }
+    catch(err){ log("TX échec ("+label+") : "+err.message,'rx-err'); }
+  });
+  return gattQueue;
 }
 function sendSpeed(v){ v=clamp(v,spdMin,spdMax); const r=Math.round(v*100); return sendControl([0x02,r&0xff,(r>>8)&0xff],"Set Speed "+v.toFixed(1)); }
 function sendIncline(v){ v=clamp(v,inclMin,inclMax); const b=new ArrayBuffer(3),dv=new DataView(b); dv.setUint8(0,0x03); dv.setInt16(1,Math.round(v*10),true); return sendControl([...new Uint8Array(b)],"Set Incline "+v.toFixed(1)); }
@@ -451,26 +456,27 @@ function launch(id){ const s=loadSessions().find(x=>x.id===id); if(!s) return;
 }
 function resetPlayViews(){ $('pPrestart').style.display='none'; $('pRun').style.display='none'; $('pSpeedCtrl').style.display='none'; }
 
-// --- Intervalles (temps) ---
+// --- Intervalles (temps actif) ---
 function startInterval(session){
   resetPlayViews(); resetCounters();
-  play={ type:'interval', session, idx:0, segStart:performance.now(), timer:null, paused:false, pausedAt:0 };
+  play={ type:'interval', session, idx:0, segElapsed:0, lastTs:performance.now(), timer:null, paused:false, started:false };
   $('playName').textContent=session.name; $('pTotLbl').textContent='Séance';
   $('pRun').style.display='block';
-  applySeg(session.segments[0]);
+  applySeg(session.segments[0]); // pré-règle le 1er bloc
   play.timer=setInterval(playTick,300); renderInterval(); showView('play');
 }
 function applySeg(seg){ sendSpeed(seg.spd); sendIncline(seg.inc); }
 function renderInterval(){
   const segs=play.session.segments, seg=segs[play.idx];
-  const inSeg=(performance.now()-play.segStart)/1000, rem=Math.max(0,seg.dur-inSeg);
+  const rem=Math.max(0,seg.dur-play.segElapsed);
   $('pSpd').textContent=seg.spd.toFixed(1); $('pInc').textContent=Math.round(seg.inc);
   $('pBlock').textContent=(seg.name&&seg.name.trim()? seg.name : 'Bloc '+(play.idx+1))+' ('+(play.idx+1)+'/'+segs.length+')';
-  $('pRem').textContent=fmt(rem); $('pSegBar').style.width=Math.min(100,inSeg/seg.dur*100)+'%';
-  const totDur=segs.reduce((a,s)=>a+s.dur,0); let done=0; for(let i=0;i<play.idx;i++) done+=segs[i].dur; done+=Math.min(inSeg,seg.dur);
+  $('pRem').textContent=fmt(rem); $('pSegBar').style.width=Math.min(100,play.segElapsed/seg.dur*100)+'%';
+  const totDur=segs.reduce((a,s)=>a+s.dur,0); let done=0; for(let i=0;i<play.idx;i++) done+=segs[i].dur; done+=Math.min(play.segElapsed,seg.dur);
   $('pTot').textContent=fmt(done)+' / '+fmt(totDur); $('pTotBar').style.width=Math.min(100,done/totDur*100)+'%';
   const nx=segs[play.idx+1];
   $('pNext').textContent=nx? ('Suivant : '+(nx.name&&nx.name.trim()?nx.name+' — ':'')+nx.spd.toFixed(1)+' km/h · '+Math.round(nx.inc)+' % · '+fmt(nx.dur)) : 'Dernier bloc';
+  updateReady();
 }
 
 // --- GPX (distance) ---
@@ -486,12 +492,11 @@ $('pModeGpx').onclick=()=>{ if(play&&play.session) startGpx(play.session,'gpx');
 $('pModeFree').onclick=()=>{ if(play&&play.session) startGpx(play.session,'free'); };
 function startGpx(session, mode){
   resetPlayViews(); resetCounters();
-  play={ type:'gpx', session, mode, timer:null, paused:false, pausedAt:0, base:0, lastInc:null, lastSpd:null };
+  play={ type:'gpx', session, mode, timer:null, paused:false, started:false, lastInc:null, lastSpd:null };
   $('playName').textContent=session.name; $('pTotLbl').textContent='Parcours';
   $('pRun').style.display='block';
   if(mode==='free') $('pSpeedCtrl').style.display='block';
-  // pente initiale
-  applyGpxAt(0);
+  applyGpxAt(0); // pré-règle la pente de départ
   play.timer=setInterval(gpxTick,300); renderGpx(); showView('play');
 }
 function segAtDist(session, d){ const segs=session.segs; for(let i=0;i<segs.length;i++){ if(d<segs[i].d1) return {seg:segs[i],i}; } return {seg:segs[segs.length-1], i:segs.length-1}; }
@@ -502,8 +507,9 @@ function applyGpxAt(d){
 }
 function gpxTick(){
   if(!play||play.paused) return;
-  const covered=distanceM; // depuis reset
-  if(covered>=play.session.totalDist){ log("Parcours GPX terminé."); playStop(true); return; }
+  if(curSpeed>0) play.started=true;
+  const covered=distanceM;
+  if(play.started && covered>=play.session.totalDist){ log("Parcours GPX terminé."); playStop(true); return; }
   applyGpxAt(covered); renderGpx();
 }
 function renderGpx(){
@@ -518,21 +524,24 @@ function renderGpx(){
   $('pTot').textContent=(covered/1000).toFixed(2)+' / '+(s.totalDist/1000).toFixed(2)+' km';
   const nx=s.segs[i+1];
   $('pNext').textContent=nx? ('À venir : pente '+nx.grade.toFixed(1)+' %') : 'Fin du parcours proche';
+  updateReady();
 }
 
 // --- Commun ---
+function updateReady(){ if($('pReady')) $('pReady').style.display=(play && !play.started)?'block':'none'; }
 function playTick(){
+  const now=performance.now(); const dt=(now-play.lastTs)/1000; play.lastTs=now;
   if(!play||play.paused) return;
   const seg=play.session.segments[play.idx];
-  const inSeg=(performance.now()-play.segStart)/1000;
-  if(inSeg>=seg.dur){ play.idx++;
+  if(curSpeed>0){ play.started=true; play.segElapsed+=dt; }   // ne progresse QUE si la courroie tourne
+  if(play.started && play.segElapsed>=seg.dur){ play.idx++; play.segElapsed=0;
     if(play.idx>=play.session.segments.length){ log("Séance terminée."); playStop(true); return; }
-    play.segStart=performance.now(); applySeg(play.session.segments[play.idx]); }
+    applySeg(play.session.segments[play.idx]); }
   renderInterval();
 }
 function playPause(){ if(!play) return;
-  if(!play.paused){ play.paused=true; play.pausedAt=performance.now(); $('pPause').textContent='Reprendre'; }
-  else { if(play.type==='interval') play.segStart+=performance.now()-play.pausedAt; play.paused=false; $('pPause').textContent='Pause';
+  if(!play.paused){ play.paused=true; $('pPause').textContent='Reprendre'; }
+  else { play.paused=false; play.lastTs=performance.now(); $('pPause').textContent='Pause';
     if(play.type==='interval') renderInterval(); else renderGpx(); } }
 function playStop(slow){ if(play&&play.timer) clearInterval(play.timer); if(slow&&controlChar) sendSpeed(spdMin); play=null; $('pPause').textContent='Pause'; resetPlayViews(); showView('sessions'); }
 
