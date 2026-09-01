@@ -110,8 +110,6 @@
       <div class="row"><button id="spdMinus" class="step" disabled>−</button>
         <div class="valwrap"><input id="spdInput" class="val" type="number" inputmode="decimal" step="0.1" value="2.0"><small>km/h</small></div>
         <button id="spdPlus" class="step" disabled>+</button></div></div>
-    <div class="acts"><button id="start" class="go" disabled>Démarrer</button>
-      <button id="stop" class="stopb" disabled>Arrêter</button></div>
     <button id="finishBtn" class="cta ghost" onclick="finishRun()" disabled style="margin-bottom:8px">Terminer et enregistrer la course</button>
     <p class="muted">La courroie se lance au bouton physique du tapis (démarrage à distance verrouillé). L'app pilote allure et pente.</p>
   </div>
@@ -221,7 +219,7 @@ function showView(v){ view=v; ['drive','sessions','build','play','history'].forE
   document.querySelector('.tabs').style.display = (v==='play')?'none':'grid';
   if(v==='sessions'){ $('gpxMsg').textContent=''; renderSessList(); } if(v==='history') renderHistList(); }
 
-function ctrlButtons(on){ ['incMinus','incPlus','spdMinus','spdPlus','start','stop','incInput','spdInput'].forEach(id=>$(id).disabled=!on); }
+function ctrlButtons(on){ ['incMinus','incPlus','spdMinus','spdPlus','incInput','spdInput'].forEach(id=>$(id).disabled=!on); }
 function setConnected(on){ $('dot').classList.toggle('on',on); $('chipTxt').textContent=on?'Connecté':'Hors ligne';
   $('connect').style.display=on?'none':'block'; $('disconnect').style.display=on?'block':'none'; ctrlButtons(on); }
 
@@ -237,7 +235,7 @@ $('connect').onclick = async () => {
     await dataCh.startNotifications(); dataCh.addEventListener('characteristicvaluechanged', e=>parseData(e.target.value));
     controlChar = await svc.getCharacteristic(CONTROL);
     await controlChar.startNotifications(); controlChar.addEventListener('characteristicvaluechanged', e=>parseControlResponse(e.target.value));
-    await readRanges(svc); await sendControl([0x00],"Request Control");
+    await readRanges(svc); await sendControl([0x00],"Request Control"); sendControl([0x07],"Start"); // arme la machine
     setConnected(true); refreshTargets(); resetCounters(); startTimer(); startRecorder(); acquireWakeLock();
   }catch(err){ log("ERR "+err,'rx-err'); }
 };
@@ -407,8 +405,7 @@ function sendControl(bytes, label){
 }
 function sendSpeed(v){ v=clamp(v,spdMin,spdMax); const r=Math.round(v*100); return sendControl([0x02,r&0xff,(r>>8)&0xff],"Set Speed "+v.toFixed(1)); }
 function sendIncline(v){ v=clamp(v,inclMin,inclMax); const b=new ArrayBuffer(3),dv=new DataView(b); dv.setUint8(0,0x03); dv.setInt16(1,Math.round(v*10),true); return sendControl([...new Uint8Array(b)],"Set Incline "+v.toFixed(1)); }
-$('start').onclick = async ()=>{ await sendControl([0x07],"Start"); await new Promise(r=>setTimeout(r,150)); await sendSpeed(spdTarget); await sendIncline(inclTarget); };
-$('stop').onclick  = ()=>{ sendControl([0x08,0x01],"Stop"); };
+// pilotage manuel : les steppers Allure/Montée envoient directement (le tapis est armé à la connexion)
 
 let spdT=null, incT=null;
 function refreshTargets(){ $('spdInput').value=spdTarget.toFixed(1); $('incInput').value=inclTarget.toFixed(inclUi<1?1:0); if($('pSpdInput')) $('pSpdInput').value=spdTarget.toFixed(1); }
@@ -460,7 +457,7 @@ function renderSessList(){
   if(!arr.length){ el.innerHTML='<p class="muted">Aucune séance. Crée une séance à intervalles ou importe un GPX.</p>'; return; }
   el.innerHTML=arr.map(s=>{
     let meta, tag;
-    if(s.type==='gpx'){ tag='<span class="tag gpx">GPX</span>'; meta=(s.totalDist/1000).toFixed(2)+' km · '+s.totalDplus+' m D+'+(s.hasTime?' · allure dispo':''); }
+    if(s.type==='gpx'){ const noTrack=!s.track||s.track.length<2; tag='<span class="tag gpx">GPX</span>'; meta=(s.totalDist/1000).toFixed(2)+' km · '+s.totalDplus+' m D+'+(noTrack?' · ⚠ réimporter pour la trace GPS':(s.hasTime?' · allure dispo':'')); }
     else { const t=sessionTotals(s.segments); tag='<span class="tag itv">INTERVALLES</span>'; meta=s.segments.length+' blocs · '+fmt(t.dur)+' · '+(t.dist/1000).toFixed(2)+' km · '+t.dp+' m D+'; }
     if(confirmDel===s.id){
       return '<div class="sesscard" style="flex-direction:column;align-items:stretch;gap:10px">'+
