@@ -535,7 +535,7 @@ function startInterval(session){
   play={ type:'interval', session, idx:0, segElapsed:0, lastTs:performance.now(), timer:null, paused:false, started:false };
   $('playName').textContent=session.name; $('pTotLbl').textContent='Séance';
   $('pRun').style.display='block';
-  applySeg(session.segments[0]); // pré-règle le 1er bloc
+  sendControl([0x07],"Start"); applySeg(session.segments[0]); // arme + pré-règle le 1er bloc
   play.timer=setInterval(playTick,300); renderInterval(); showView('play');
 }
 function applySeg(seg){ sendSpeed(seg.spd); sendIncline(seg.inc); }
@@ -570,7 +570,7 @@ function startGpx(session, mode){
   $('pRun').style.display='block';
   if(mode==='free') $('pSpeedCtrl').style.display='block';
   activeRoute = session.track && session.track.length>1 ? session.track : null;
-  applyGpxAt(0); // pré-règle la pente de départ
+  sendControl([0x07],"Start"); applyGpxAt(0); // arme + pré-règle la pente de départ
   play.timer=setInterval(gpxTick,300); renderGpx(); showView('play');
 }
 function segAtDist(session, d){ const segs=session.segs; for(let i=0;i<segs.length;i++){ if(d<segs[i].d1) return {seg:segs[i],i}; } return {seg:segs[segs.length-1], i:segs.length-1}; }
@@ -581,7 +581,7 @@ function applyGpxAt(d){
 }
 function gpxTick(){
   if(!play||play.paused) return;
-  if(curSpeed>0) play.started=true;
+  if(curSpeed>0 && !play.started){ play.started=true; play.lastInc=null; play.lastSpd=null; } // force le renvoi pente/allure
   const covered=distanceM;
   if(play.started && covered>=play.session.totalDist){ log("Parcours GPX terminé."); playStop(true); return; }
   applyGpxAt(covered); renderGpx();
@@ -607,7 +607,7 @@ function playTick(){
   const now=performance.now(); const dt=(now-play.lastTs)/1000; play.lastTs=now;
   if(!play||play.paused) return;
   const seg=play.session.segments[play.idx];
-  if(curSpeed>0){ play.started=true; play.segElapsed+=dt; }   // ne progresse QUE si la courroie tourne
+  if(curSpeed>0){ if(!play.started){ play.started=true; applySeg(seg); } play.segElapsed+=dt; }   // ré-applique dès mouvement, puis progresse
   if(play.started && play.segElapsed>=seg.dur){ play.idx++; play.segElapsed=0;
     if(play.idx>=play.session.segments.length){ log("Séance terminée."); playStop(true); return; }
     applySeg(play.session.segments[play.idx]); }
