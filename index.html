@@ -112,6 +112,7 @@
         <button id="spdPlus" class="step" disabled>+</button></div></div>
     <div class="acts"><button id="start" class="go" disabled>Démarrer</button>
       <button id="stop" class="stopb" disabled>Arrêter</button></div>
+    <button id="finishBtn" class="cta ghost" onclick="finishRun()" disabled style="margin-bottom:8px">Terminer et enregistrer la course</button>
     <p class="muted">La courroie se lance au bouton physique du tapis (démarrage à distance verrouillé). L'app pilote allure et pente.</p>
   </div>
 
@@ -217,6 +218,7 @@ function escapeHtml(s){ return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&
 let view='drive';
 function showView(v){ view=v; ['drive','sessions','build','play','history'].forEach(x=>$('view-'+x).style.display=x===v?'block':'none');
   $('tabDrive').classList.toggle('act', v==='drive'); $('tabSess').classList.toggle('act', v==='sessions'||v==='build'); $('tabHist').classList.toggle('act', v==='history');
+  document.querySelector('.tabs').style.display = (v==='play')?'none':'grid';
   if(v==='sessions'){ $('gpxMsg').textContent=''; renderSessList(); } if(v==='history') renderHistList(); }
 
 function ctrlButtons(on){ ['incMinus','incPlus','spdMinus','spdPlus','start','stop','incInput','spdInput'].forEach(id=>$(id).disabled=!on); }
@@ -251,9 +253,10 @@ async function readRanges(svc){
   }catch(e){}
   refreshTargets();
 }
-function resetCounters(){ archiveRun(); distanceM=0; dPlusM=0; lastDataTs=null; rec=[]; activeRoute=null; $('distance').textContent='0'; $('dplus').textContent='0'; }
+function resetCounters(){ archiveRun(); distanceM=0; dPlusM=0; lastDataTs=null; rec=[]; activeRoute=null; $('distance').textContent='0'; $('dplus').textContent='0'; if($('finishBtn')) $('finishBtn').disabled=true; }
+function finishRun(){ if(!rec || rec.length<2){ log("Course trop courte pour enregistrer.",'rx-err'); return; } resetCounters(); showView('history'); }
 function startRecorder(){ if(recTimer) clearInterval(recTimer); recTimer=setInterval(()=>{
-  if(curSpeed>0){ rec.push({ t:new Date().toISOString(), dist:distanceM, spd:curSpeed, alt:dPlusM, hr:curHr }); }
+  if(curSpeed>0){ rec.push({ t:new Date().toISOString(), dist:distanceM, spd:curSpeed, alt:dPlusM, hr:curHr }); if($('finishBtn')) $('finishBtn').disabled=false; }
 }, 1000); }
 
 // ---- Export TCX ----
