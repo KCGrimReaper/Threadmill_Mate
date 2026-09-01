@@ -111,7 +111,8 @@
         <button id="spdPlus" class="step" disabled>+</button></div></div>
     <div class="acts"><button id="start" class="go" disabled>Démarrer</button>
       <button id="stop" class="stopb" disabled>Arrêter</button></div>
-    <button id="exportBtn" class="cta ghost" onclick="exportTcx()" disabled style="margin-bottom:8px">Exporter la course (TCX)</button>
+    <button id="exportFitBtn" class="cta" onclick="exportFit()" disabled style="margin-bottom:8px">Exporter (FIT — D+ dans Strava)</button>
+    <button id="exportBtn" class="cta ghost" onclick="exportTcx()" disabled style="margin-bottom:8px">Exporter (TCX)</button>
     <p class="muted">La courroie se lance au bouton physique du tapis (démarrage à distance verrouillé). L'app pilote allure et pente.</p>
   </div>
 
@@ -235,9 +236,9 @@ async function readRanges(svc){
   }catch(e){}
   refreshTargets();
 }
-function resetCounters(){ distanceM=0; dPlusM=0; lastDataTs=null; rec=[]; $('distance').textContent='0'; $('dplus').textContent='0'; if($('exportBtn')) $('exportBtn').disabled=true; }
+function resetCounters(){ distanceM=0; dPlusM=0; lastDataTs=null; rec=[]; $('distance').textContent='0'; $('dplus').textContent='0'; if($('exportBtn')) $('exportBtn').disabled=true; if($('exportFitBtn')) $('exportFitBtn').disabled=true; }
 function startRecorder(){ if(recTimer) clearInterval(recTimer); recTimer=setInterval(()=>{
-  if(curSpeed>0){ rec.push({ t:new Date().toISOString(), dist:distanceM, spd:curSpeed, alt:dPlusM, hr:curHr }); if($('exportBtn')) $('exportBtn').disabled=false; }
+  if(curSpeed>0){ rec.push({ t:new Date().toISOString(), dist:distanceM, spd:curSpeed, alt:dPlusM, hr:curHr }); if($('exportBtn')) $('exportBtn').disabled=false; if($('exportFitBtn')) $('exportFitBtn').disabled=false; }
 }, 1000); }
 
 // ---- Export TCX ----
@@ -272,6 +273,62 @@ function exportTcx(){
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fname; a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),2000);
   log("Export TCX : "+fname+" ("+rec.length+" points)",'rx-ok');
+}
+
+// ---- Export FIT (porte le D+ dans Strava, comme Zwift) ----
+function fitCRC(bytes){
+  const t=[0x0000,0xCC01,0xD801,0x1400,0xF001,0x3C00,0x2800,0xE401,0xA001,0x6C00,0x7800,0xB401,0x5000,0x9C01,0x8801,0x4400];
+  let crc=0;
+  for(let i=0;i<bytes.length;i++){ const b=bytes[i];
+    let tmp=t[crc&0xF]; crc=(crc>>4)&0x0FFF; crc=crc^tmp^t[b&0xF];
+    tmp=t[crc&0xF]; crc=(crc>>4)&0x0FFF; crc=crc^tmp^t[(b>>4)&0xF]; }
+  return crc&0xFFFF;
+}
+function buildFit(samples){
+  if(samples.length<2) return null;
+  const D=[];
+  const u8=v=>D.push(v&0xFF);
+  const u16=v=>{ D.push(v&0xFF); D.push((v>>8)&0xFF); };
+  const u32=v=>{ v=v>>>0; D.push(v&0xFF); D.push((v>>>8)&0xFF); D.push((v>>>16)&0xFF); D.push((v>>>24)&0xFF); };
+  const EPOCH=631065600, toFit=iso=>Math.round(new Date(iso).getTime()/1000-EPOCH);
+  const t0=toFit(samples[0].t), t1=toFit(samples[samples.length-1].t), totalSec=Math.max(1,t1-t0);
+  const totalDist=samples[samples.length-1].dist, totalAsc=Math.round(samples[samples.length-1].alt);
+  const def=(local,global,fields)=>{ u8(0x40|local); u8(0); u8(0); u16(global); u8(fields.length); fields.forEach(f=>{u8(f[0]);u8(f[1]);u8(f[2]);}); };
+
+  // file_id
+  def(0,0,[[0,1,0x00],[1,2,0x84],[2,2,0x84],[4,4,0x86],[3,4,0x8C]]);
+  u8(0); u8(4); u16(255); u16(0); u32(toFit(new Date().toISOString())); u32(0);
+  // record (def local 1)
+  def(1,20,[[253,4,0x86],[5,4,0x86],[2,2,0x84],[6,2,0x84],[3,1,0x02]]);
+  for(const s of samples){
+    u8(1); u32(toFit(s.t)); u32(Math.round(s.dist*100)); u16(Math.round((s.alt+500)*5));
+    u16(Math.round((s.spd/3.6)*1000)); u8(s.hr>0?Math.round(s.hr):0xFF);
+  }
+  // lap
+  def(2,19,[[253,4,0x86],[2,4,0x86],[7,4,0x86],[8,4,0x86],[9,4,0x86],[21,2,0x84]]);
+  u8(2); u32(t1); u32(t0); u32(totalSec*1000); u32(totalSec*1000); u32(Math.round(totalDist*100)); u16(totalAsc);
+  // session
+  def(3,18,[[253,4,0x86],[2,4,0x86],[7,4,0x86],[8,4,0x86],[9,4,0x86],[22,2,0x84],[5,1,0x00],[6,1,0x00],[26,2,0x84],[25,2,0x84]]);
+  u8(3); u32(t1); u32(t0); u32(totalSec*1000); u32(totalSec*1000); u32(Math.round(totalDist*100)); u16(totalAsc); u8(1); u8(1); u16(1); u16(0);
+  // activity
+  def(4,34,[[253,4,0x86],[0,4,0x86],[1,2,0x84],[2,1,0x00],[3,1,0x00],[4,1,0x00]]);
+  u8(4); u32(t1); u32(totalSec*1000); u16(1); u8(0); u8(26); u8(1);
+
+  // en-tête 14 octets
+  const h=[14,0x20, 2140&0xFF,(2140>>8)&0xFF, D.length&0xFF,(D.length>>8)&0xFF,(D.length>>16)&0xFF,(D.length>>24)&0xFF, 0x2E,0x46,0x49,0x54];
+  const hcrc=fitCRC(h.slice(0,12)); h.push(hcrc&0xFF,(hcrc>>8)&0xFF);
+  const body=h.concat(D); const fcrc=fitCRC(body);
+  return new Uint8Array(body.concat([fcrc&0xFF,(fcrc>>8)&0xFF]));
+}
+function exportFit(){
+  const bin=buildFit(rec);
+  if(!bin){ log("Rien à exporter (pas encore de données).",'rx-err'); return; }
+  const d=new Date(), pad=n=>String(n).padStart(2,'0');
+  const fname='threadmill-'+d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+'-'+pad(d.getHours())+pad(d.getMinutes())+'.fit';
+  const blob=new Blob([bin],{type:'application/octet-stream'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fname; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+  log("Export FIT : "+fname+" ("+rec.length+" pts, "+Math.round(rec[rec.length-1].alt)+" m D+)",'rx-ok');
 }
 function startTimer(){ elapsedMs=0; lastTick=performance.now(); if(timerId) clearInterval(timerId); timerId=setInterval(tick,500); tick(); }
 function stopTimer(){ if(timerId){ clearInterval(timerId); timerId=null; } }
