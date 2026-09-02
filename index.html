@@ -311,25 +311,25 @@ function buildFit(samples, route){
   const SC=2147483648/180, sc=deg=>Math.round(deg*SC);
   const t0=toFit(samples[0].t), t1=toFit(samples[samples.length-1].t), totalSec=Math.max(1,t1-t0);
   const totalDist=samples[samples.length-1].dist, totalAsc=Math.round(samples[samples.length-1].alt);
-  const hasPos=!!(route && route.length>1);
+  const realRoute=!!(route && route.length>1);
+  const BLAT=45.9237, BLON=6.8694; // base pour trace synthétique (course sans GPX)
   const def=(local,global,fields)=>{ u8(0x40|local); u8(0); u8(0); u16(global); u8(fields.length); fields.forEach(f=>{u8(f[0]);u8(f[1]);u8(f[2]);}); };
 
   def(0,0,[[0,1,0x00],[1,2,0x84],[2,2,0x84],[4,4,0x86],[3,4,0x8C]]);
   u8(0); u8(4); u16(255); u16(0); u32(toFit(new Date().toISOString())); u32(0);
 
-  // record : avec ou sans position
-  const recFields=[[253,4,0x86],[5,4,0x86],[2,2,0x84],[6,2,0x84],[3,1,0x02]];
-  if(hasPos){ recFields.push([0,4,0x85],[1,4,0x85]); } // position_lat, position_long (sint32)
-  def(1,20,recFields);
+  // record : toujours avec position (réelle si GPX, sinon synthétique) pour que Strava affiche le D+
+  def(1,20,[[253,4,0x86],[5,4,0x86],[2,2,0x84],[6,2,0x84],[3,1,0x02],[0,4,0x85],[1,4,0x85]]);
   for(const s of samples){
-    u8(1); u32(toFit(s.t)); u32(Math.round(s.dist*100));
-    if(hasPos){ const p=posAt(route,s.dist); u16(Math.round((p.ele+500)*5)); u16(Math.round((s.spd/3.6)*1000)); u8(s.hr>0?Math.round(s.hr):0xFF); u32(sc(p.lat)); u32(sc(p.lon)); }
-    else { u16(Math.round((s.alt+500)*5)); u16(Math.round((s.spd/3.6)*1000)); u8(s.hr>0?Math.round(s.hr):0xFF); }
+    let lat,lon,alt;
+    if(realRoute){ const p=posAt(route,s.dist); lat=p.lat; lon=p.lon; alt=p.ele; }
+    else { lat=BLAT + s.dist/111320; lon=BLON; alt=s.alt; }
+    u8(1); u32(toFit(s.t)); u32(Math.round(s.dist*100)); u16(Math.round((alt+500)*5)); u16(Math.round((s.spd/3.6)*1000)); u8(s.hr>0?Math.round(s.hr):0xFF); u32(sc(lat)); u32(sc(lon));
   }
   def(2,19,[[253,4,0x86],[2,4,0x86],[7,4,0x86],[8,4,0x86],[9,4,0x86],[21,2,0x84]]);
   u8(2); u32(t1); u32(t0); u32(totalSec*1000); u32(totalSec*1000); u32(Math.round(totalDist*100)); u16(totalAsc);
   def(3,18,[[253,4,0x86],[2,4,0x86],[7,4,0x86],[8,4,0x86],[9,4,0x86],[22,2,0x84],[5,1,0x00],[6,1,0x00],[26,2,0x84],[25,2,0x84]]);
-  u8(3); u32(t1); u32(t0); u32(totalSec*1000); u32(totalSec*1000); u32(Math.round(totalDist*100)); u16(totalAsc); u8(1); u8(hasPos?0:58); u16(1); u16(0);
+  u8(3); u32(t1); u32(t0); u32(totalSec*1000); u32(totalSec*1000); u32(Math.round(totalDist*100)); u16(totalAsc); u8(1); u8(realRoute?0:58); u16(1); u16(0);
   def(4,34,[[253,4,0x86],[0,4,0x86],[1,2,0x84],[2,1,0x00],[3,1,0x00],[4,1,0x00]]);
   u8(4); u32(t1); u32(totalSec*1000); u16(1); u8(0); u8(26); u8(1);
 
