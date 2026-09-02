@@ -122,12 +122,18 @@
     </div>
     <input type="file" id="gpxFile" accept=".gpx" style="display:none">
     <p id="gpxMsg" class="err"></p>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button id="sessSelBtn" class="run" style="background:var(--surface2);color:var(--text)" onclick="toggleSelMode('sess')">Sélectionner</button></div>
+    <div id="sessBulk" style="display:none;margin-bottom:10px"><button class="cta" style="background:var(--stop);color:#fff" onclick="bulkDelete('sess')">Supprimer la sélection (<span id="sessSelN">0</span>)</button></div>
     <div id="sessList"></div>
   </div>
 
   <!-- HISTORIQUE -->
   <div id="view-history" style="display:none">
-    <p class="muted" id="histHint" style="margin:0 0 12px">Tes courses terminées apparaissent ici.</p>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <p class="muted" id="histHint" style="margin:0">Tes courses terminées apparaissent ici.</p>
+      <button id="histSelBtn" class="run" style="background:var(--surface2);color:var(--text)" onclick="toggleSelMode('hist')">Sélectionner</button>
+    </div>
+    <div id="histBulk" style="display:none;margin-bottom:10px"><button class="cta" style="background:var(--stop);color:#fff" onclick="bulkDelete('hist')">Supprimer la sélection (<span id="histSelN">0</span>)</button></div>
     <div id="histList"></div>
   </div>
 
@@ -187,6 +193,8 @@
   <div id="histModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:50;align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this)closeHistModal()">
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:18px;width:100%;max-width:360px;padding:16px">
       <div class="muted" id="histModalTitle" style="text-align:center;margin-bottom:14px"></div>
+      <input id="histNameInput" class="name" placeholder="Nom de la course (optionnel)" style="margin-bottom:8px">
+      <button class="cta ghost" onclick="histRename()" style="margin-bottom:12px">Renommer</button>
       <button class="cta" onclick="histFit(histSel)" style="margin-bottom:8px">Télécharger FIT</button>
       <button class="cta ghost" onclick="histTcx(histSel)" style="margin-bottom:8px">Télécharger TCX</button>
       <button class="cta" onclick="histDel(histSel)" style="margin-bottom:8px;background:var(--stop);color:#fff">Supprimer</button>
@@ -348,7 +356,7 @@ function archiveRun(){
   // sous-échantillonnage 1 point / 3 s pour tenir dans le stockage
   const s=[]; for(let i=0;i<rec.length;i+=3) s.push(rec[i]); if(s[s.length-1]!==rec[rec.length-1]) s.push(rec[rec.length-1]);
   const last=rec[rec.length-1], first=rec[0];
-  const entry={ id:'r'+Date.now(), date:first.t, dist:Math.round(last.dist), dplus:Math.round(last.alt),
+  const entry={ id:'r'+Date.now(), date:first.t, name:'', dist:Math.round(last.dist), dplus:Math.round(last.alt),
     dur:Math.round((new Date(last.t)-new Date(first.t))/1000), hasRoute:!!activeRoute,
     route: activeRoute||null, samples:s };
   const arr=loadHistory(); arr.unshift(entry); while(arr.length>12) arr.pop(); persistHist(arr);
@@ -358,20 +366,40 @@ let histSel=null;
 function openHistModal(id){ const e=loadHistory().find(x=>x.id===id); if(!e) return; histSel=id;
   const dt=new Date(e.date), pad=n=>String(n).padStart(2,'0');
   $('histModalTitle').textContent=pad(dt.getDate())+'/'+pad(dt.getMonth()+1)+' '+pad(dt.getHours())+':'+pad(dt.getMinutes())+' · '+(e.dist/1000).toFixed(2)+' km · '+e.dplus+' m D+';
+  $('histNameInput').value=e.name||'';
   $('histModal').style.display='flex'; }
 function closeHistModal(){ $('histModal').style.display='none'; histSel=null; }
+function histRename(){ const id=histSel, name=($('histNameInput').value||'').trim(); const arr=loadHistory(); const e=arr.find(x=>x.id===id); if(e){ e.name=name; persistHist(arr); } closeHistModal(); renderHistList(); }
 function histFit(id){ const e=loadHistory().find(x=>x.id===id); if(e) dlFit(e.samples, e.route); closeHistModal(); }
 function histTcx(id){ const e=loadHistory().find(x=>x.id===id); if(e) dlTcx(e.samples); closeHistModal(); }
 function histDel(id){ persistHist(loadHistory().filter(x=>x.id!==id)); closeHistModal(); renderHistList(); }
+
+// ---- Sélection multiple (historique + séances) ----
+let selMode={hist:false, sess:false};
+let selSet={hist:new Set(), sess:new Set()};
+function toggleSelMode(k){ selMode[k]=!selMode[k]; selSet[k].clear();
+  $(k+'SelBtn').textContent=selMode[k]?'Terminer':'Sélectionner'; $(k+'Bulk').style.display='none';
+  (k==='hist'?renderHistList:renderSessList)(); }
+function selToggle(k,id){ const s=selSet[k]; if(s.has(id)) s.delete(id); else s.add(id);
+  $(k+'SelN').textContent=s.size; $(k+'Bulk').style.display=s.size?'block':'none';
+  (k==='hist'?renderHistList:renderSessList)(); }
+function bulkDelete(k){ const s=selSet[k];
+  if(k==='hist') persistHist(loadHistory().filter(x=>!s.has(x.id))); else persist(loadSessions().filter(x=>!s.has(x.id)));
+  s.clear(); selMode[k]=false; $(k+'SelBtn').textContent='Sélectionner'; $(k+'Bulk').style.display='none';
+  (k==='hist'?renderHistList:renderSessList)(); }
+
 function renderHistList(){
   const arr=loadHistory(); const el=$('histList');
   if(!arr.length){ el.innerHTML='<p class="muted">Aucune course enregistrée pour l\'instant.</p>'; return; }
   el.innerHTML=arr.map(e=>{
     const dt=new Date(e.date), pad=n=>String(n).padStart(2,'0');
     const when=pad(dt.getDate())+'/'+pad(dt.getMonth()+1)+' '+pad(dt.getHours())+':'+pad(dt.getMinutes());
+    const title=(e.name&&e.name.trim())? escapeHtml(e.name) : when;
     const meta=(e.dist/1000).toFixed(2)+' km · '+e.dplus+' m D+ · '+fmt(e.dur)+(e.hasRoute?' · trace GPS':'');
-    return '<div class="sesscard"><div style="min-width:0"><div class="t">'+when+'</div><div class="m">'+meta+'</div></div>'+
-      '<button class="run" onclick="openHistModal(\''+e.id+'\')" style="background:var(--surface2);color:var(--text);font-size:18px;padding:8px 14px">···</button></div>';
+    if(selMode.hist){ const on=selSet.hist.has(e.id);
+      return '<div class="sesscard" style="cursor:pointer" onclick="selToggle(\'hist\',\''+e.id+'\')"><div style="min-width:0"><div class="t">'+title+'</div><div class="m">'+meta+'</div></div><span style="font-size:20px;flex-shrink:0">'+(on?'☑':'☐')+'</span></div>'; }
+    return '<div class="sesscard"><div style="min-width:0"><div class="t">'+title+'</div><div class="m">'+meta+'</div></div>'+
+      '<button class="run" onclick="openHistModal(\''+e.id+'\')" style="background:var(--surface2);color:var(--text);font-size:18px;padding:8px 14px;flex-shrink:0">···</button></div>';
   }).join('');
 }
 function startTimer(){ elapsedMs=0; lastTick=performance.now(); if(timerId) clearInterval(timerId); timerId=setInterval(tick,500); tick(); }
@@ -448,10 +476,7 @@ function loadSessions(){ try{ return JSON.parse(localStorage.getItem('tm_session
 function persist(arr){ localStorage.setItem('tm_sessions', JSON.stringify(arr)); }
 function sessionTotals(segs){ let d=0,dist=0,dp=0; segs.forEach(s=>{ d+=s.dur; const m=(s.spd/3.6)*s.dur; dist+=m; if(s.inc>0) dp+=m*(s.inc/100); }); return {dur:d,dist:Math.round(dist),dp:Math.round(dp)}; }
 
-let confirmDel=null;
-function askDelete(id){ confirmDel=id; renderSessList(); }
-function cancelDelete(){ confirmDel=null; renderSessList(); }
-function doDelete(id){ persist(loadSessions().filter(x=>x.id!==id)); confirmDel=null; renderSessList(); }
+// suppression individuelle remplacée par le mode sélection (bulkDelete)
 function renderSessList(){
   const arr=loadSessions(); const el=$('sessList');
   if(!arr.length){ el.innerHTML='<p class="muted">Aucune séance. Crée une séance à intervalles ou importe un GPX.</p>'; return; }
@@ -459,20 +484,23 @@ function renderSessList(){
     let meta, tag;
     if(s.type==='gpx'){ const noTrack=!s.track||s.track.length<2; tag='<span class="tag gpx">GPX</span>'; meta=(s.totalDist/1000).toFixed(2)+' km · '+s.totalDplus+' m D+'+(noTrack?' · ⚠ réimporter pour la trace GPS':(s.hasTime?' · allure dispo':'')); }
     else { const t=sessionTotals(s.segments); tag='<span class="tag itv">INTERVALLES</span>'; meta=s.segments.length+' blocs · '+fmt(t.dur)+' · '+(t.dist/1000).toFixed(2)+' km · '+t.dp+' m D+'; }
-    if(confirmDel===s.id){
+    if(selMode.sess){ const on=selSet.sess.has(s.id);
+      return '<div class="sesscard" style="cursor:pointer" onclick="selToggle(\'sess\',\''+s.id+'\')"><div style="min-width:0"><div class="t">'+escapeHtml(s.name)+tag+'</div><div class="m">'+meta+'</div></div><span style="font-size:20px;flex-shrink:0">'+(on?'☑':'☐')+'</span></div>'; }
+    if(renameSess===s.id){
       return '<div class="sesscard" style="flex-direction:column;align-items:stretch;gap:10px">'+
-        '<div><div class="t">'+escapeHtml(s.name)+tag+'</div><div class="m">'+meta+'</div></div>'+
-        '<div style="display:flex;gap:8px"><span class="muted" style="flex:1;align-self:center">Supprimer cette séance ?</span>'+
-        '<button class="run" onclick="doDelete(\''+s.id+'\')" style="background:var(--stop);color:#fff">Supprimer</button>'+
-        '<button class="run" onclick="cancelDelete()" style="background:var(--surface2);color:var(--text)">Annuler</button></div></div>';
+        '<input id="renameInput" class="name" style="margin:0" value="'+escapeHtml(s.name)+'">'+
+        '<div style="display:flex;gap:8px"><button class="run" style="background:var(--go);color:#04160c;flex:1" onclick="doRename(\''+s.id+'\')">Renommer</button>'+
+        '<button class="run" style="background:var(--surface2);color:var(--text)" onclick="renameSess=null;renderSessList()">Annuler</button></div></div>';
     }
     const edit = s.type==='gpx' ? '' : '<button class="run" onclick="editSession(\''+s.id+'\')" style="background:var(--surface2);color:var(--text)">Éditer</button>';
-    const right=edit+'<button class="run" onclick="launch(\''+s.id+'\')">Lancer</button>'+
-      '<button class="run" onclick="askDelete(\''+s.id+'\')" style="background:transparent;color:var(--stop);padding:10px 10px">🗑</button>';
+    const right=edit+'<button class="run" onclick="renameSess=\''+s.id+'\';renderSessList()" style="background:var(--surface2);color:var(--text)">✎</button>'+
+      '<button class="run" onclick="launch(\''+s.id+'\')">Lancer</button>';
     return '<div class="sesscard"><div style="min-width:0"><div class="t">'+escapeHtml(s.name)+tag+'</div><div class="m">'+meta+'</div></div>'+
     '<div style="display:flex;gap:6px;align-items:center;flex-shrink:0">'+right+'</div></div>';
   }).join('');
 }
+let renameSess=null;
+function doRename(id){ const v=($('renameInput').value||'').trim(); const arr=loadSessions(); const s=arr.find(x=>x.id===id); if(s&&v){ s.name=v; persist(arr); } renameSess=null; renderSessList(); }
 
 // ---- Builder intervalles ----
 let draft=null;
@@ -620,7 +648,7 @@ function renderGpx(){
   const {seg,i}=segAtDist(s,covered);
   $('pInc').textContent=Math.round(seg.grade);
   $('pSpd').textContent=(play.mode==='gpx' && seg.spd!=null)? seg.spd.toFixed(1) : (curSpeed.toFixed(1));
-  $('pBlock').textContent='Tronçon '+(i+1)+'/'+s.segs.length+' · pente '+seg.grade.toFixed(1)+' %';
+  $('pBlock').textContent='Tronçon '+(i+1)+'/'+s.segs.length+' · pente '+seg.grade.toFixed(1)+' % · reste '+Math.max(0,Math.round(seg.d1-covered))+' m';
   $('pRem').textContent=((s.totalDist-covered)/1000).toFixed(2)+' km';
   const p=Math.min(100,covered/s.totalDist*100);
   $('pSegBar').style.width=p+'%'; $('pTotBar').style.width=p+'%';
