@@ -32,6 +32,7 @@ let st={ view:'drive', connected:false, hrOn:false, speed:0, dist:0, dplus:0, el
 let spdMin=1, spdMax=18, incMin=0, incMax=15;
 let device=null, controlChar=null, hrDevice=null, wakeLock=null;
 let rec=[], activeRoute=null, gattQueue=Promise.resolve(), lastTs=0, curGrade=0;
+let selMode={hist:false,sess:false}, selSet={hist:new Set(),sess:new Set()}, renaming=null;
 
 // ---------- utils ----------
 function loadLS(k){ try{ return JSON.parse(localStorage.getItem(k)||'[]'); }catch(e){ return []; } }
@@ -142,6 +143,18 @@ function archiveRun(){
   const arr=[entry].concat(st.history).slice(0,12); persist('tm_history',arr); st.history=arr; rec=[]; }
 function finishRun(){ archiveRun(); st.view='history'; st.dist=0; st.dplus=0; st.elapsed=0; st.grades=[]; render(); }
 function delHist(id){ st.history=st.history.filter(x=>x.id!==id); persist('tm_history',st.history); render(); }
+function toggleSelMode(k){ selMode[k]=!selMode[k]; selSet[k].clear(); render(); }
+function selToggle(k,id){ const s=selSet[k]; if(s.has(id)) s.delete(id); else s.add(id); render(); }
+function bulkDelete(k){ const s=selSet[k]; if(!s.size) return;
+  if(k==='hist'){ st.history=st.history.filter(x=>!s.has(x.id)); persist('tm_history',st.history); }
+  else { st.sessions=st.sessions.filter(x=>!s.has(x.id)); persist('tm_sessions',st.sessions); }
+  s.clear(); selMode[k]=false; render(); }
+function openRename(kind,id){ renaming={kind,id}; render(); setTimeout(()=>{ const el=document.getElementById('renameInput'); if(el){ el.focus(); el.select(); } },30); }
+function closeRename(){ renaming=null; render(); }
+function doRename(){ if(!renaming) return; const v=(document.getElementById('renameInput').value||'').trim();
+  if(renaming.kind==='sess'){ const x=st.sessions.find(y=>y.id===renaming.id); if(x&&v){ x.name=v; persist('tm_sessions',st.sessions); } }
+  else { const x=st.history.find(y=>y.id===renaming.id); if(x){ x.name=v; persist('tm_history',st.history); } }
+  renaming=null; render(); }
 function dl(blob,name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000); }
 function fname(ext){ const d=new Date(), p=n=>String(n).padStart(2,'0'); return 'threadmill-'+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'-'+p(d.getHours())+p(d.getMinutes())+'.'+ext; }
 function histFit(id){ const h=st.history.find(x=>x.id===id); if(!h) return; const b=buildFit(h.samples,h.route); if(b) dl(new Blob([b],{type:'application/octet-stream'}), fname('fit')); }
@@ -272,8 +285,17 @@ function render(){
       '<button onclick="go(\'history\')" style="background:transparent;padding:6px 0;font:600 12.5px Barlow;letter-spacing:.04em;color:'+t(s.view==='history')+'">Historique</button></div>';
   }
   if(s.sheet) html+=viewSheet();
+  if(renaming) html+=viewRename();
   document.getElementById('app').innerHTML=html;
 }
+function viewRename(){ const cur = renaming.kind==='sess' ? (st.sessions.find(x=>x.id===renaming.id)||{}).name : (st.history.find(x=>x.id===renaming.id)||{}).name;
+  return '<div style="position:absolute;inset:0;background:rgba(7,8,7,.72);display:flex;align-items:flex-end;z-index:30" onclick="if(event.target===this)closeRename()">'+
+    '<div style="width:100%;background:#161816;border-top:1px solid #26291f;border-radius:26px 26px 0 0;padding:18px 18px 24px">'+
+    '<div style="font:600 19px Barlow;margin-bottom:14px">Renommer</div>'+
+    '<input id="renameInput" value="'+esc(cur||'')+'" placeholder="'+(renaming.kind==='hist'?'Nom de la course':'Nom de la séance')+'" style="width:100%;background:#191b18;border:1px solid #26291f;border-radius:14px;color:#F2F4EE;padding:13px;font:600 15px Barlow;outline:none;margin-bottom:12px">'+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'+
+    '<button onclick="closeRename()" style="background:#23261e;border-radius:14px;padding:14px;font:600 14px Barlow;color:#C3C8B8">Annuler</button>'+
+    '<button onclick="doRename()" style="background:#CBF24E;border-radius:14px;padding:14px;font:600 14px Barlow;color:#14170a">Renommer</button></div></div></div>'; }
 
 function statBar(sz){ const s=st; return '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#26291f;margin:'+(sz>30?'14':'12')+'px 18px 0;border-radius:14px;overflow:hidden">'+
   stat('KM',(s.dist/1000).toFixed(2),sz)+stat('D+',String(Math.round(s.dplus)),sz)+stat('TEMPS',fmt(s.elapsed),sz)+stat('FC',s.hr>0?String(s.hr):'—',sz,'#FF7A6B')+'</div>'; }
@@ -316,6 +338,11 @@ function viewDrive(){ const s=st, running=s.speed>0;
     '<div style="padding:0 18px 14px;font:500 12px Barlow;color:#6d7264;line-height:1.45">'+hint+'</div></div>';
   return h; }
 
+function selBar(k){ const on=selMode[k], n=selSet[k].size;
+  let h='<div style="display:flex;justify-content:flex-end;align-items:center;gap:10px">'+
+    (on&&n?'<button onclick="bulkDelete(\''+k+'\')" style="background:#23261e;border-radius:10px;padding:8px 12px;font:600 12.5px Barlow;color:#FF7A6B">Supprimer ('+n+')</button>':'')+
+    '<button onclick="toggleSelMode(\''+k+'\')" style="background:transparent;font:600 12.5px Barlow;color:'+(on?ACC:'#8A8F80')+'">'+(on?'Terminer':'Sélectionner')+'</button></div>';
+  return h; }
 function viewSessions(){ const s=st;
   const count=s.sessions.length? s.sessions.length+(s.sessions.length>1?' séances':' séance'):'';
   let h='<div style="flex:1;display:flex;flex-direction:column;padding:8px 18px 14px;gap:10px">'+
@@ -323,18 +350,23 @@ function viewSessions(){ const s=st;
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><button onclick="newSession()" style="background:#CBF24E;border-radius:14px;padding:13px;font:600 14px Barlow;color:#14170a">+ Intervalles</button>'+
     '<button onclick="document.getElementById(\'gpxFile\').click()" style="background:#191b18;border:1px solid #26291f;border-radius:14px;padding:13px;font:600 14px Barlow;color:#C3C8B8">Importer un GPX</button></div>';
   if(s.msg) h+='<div style="font:500 12.5px Barlow;color:'+s.msgColor+';line-height:1.4">'+esc(s.msg)+'</div>';
+  if(s.sessions.length) h+=selBar('sess');
   if(!s.sessions.length) h+='<div style="border:1px dashed #2e3227;border-radius:18px;padding:28px 20px;text-align:center;font:500 13.5px Barlow;color:#6d7264;line-height:1.5">Aucune séance.<br>Crée une séance à intervalles ou importe un GPX pour courir un vrai profil.</div>';
   s.sessions.forEach(x=>{ const gpx=x.type==='gpx', t=gpx?null:totals(x.segments);
     const meta=gpx?((x.totalDist/1000).toFixed(2)+' km · '+x.totalDplus+' m D+ · '+(x.hasTime?'allure du fichier':'pente seule')):(x.segments.length+' blocs · '+fmt(t.dur)+' · '+(t.dist/1000).toFixed(2)+' km · '+t.dp+' m D+');
     const bars=gpx?gpxBars(x,0).map(b=>({h:b.h,color:b.color===ACC?PAST:(b.color===DIM?'#2c3025':PAST)})):intervalBars(x.segments,-1).map(b=>({flex:b.flex,h:b.h,color:'#3c4234'}));
-    const editBtn = gpx? '' : '<button onclick="editSession(\''+x.id+'\')" style="width:52px;background:#23261e;border-radius:12px;padding:11px;font:600 13.5px Barlow;color:#C3C8B8">Éditer</button>';
+    const tag='<span style="font:700 9.5px Barlow;letter-spacing:.1em;padding:3px 7px;border-radius:5px;background:'+(gpx?'rgba(203,242,78,.14)':'#23261e')+';color:'+(gpx?ACC:'#8A8F80')+'">'+(gpx?'GPX':'INTERVALLES')+'</span>';
+    if(selMode.sess){ const onSel=selSet.sess.has(x.id);
+      h+='<div onclick="selToggle(\'sess\',\''+x.id+'\')" style="cursor:pointer;background:#191b18;border:1px solid '+(onSel?ACC:'#26291f')+';border-radius:18px;padding:13px 14px;display:flex;align-items:center;gap:10px">'+
+        '<span style="font:600 15.5px Barlow;flex:1;min-width:0">'+esc(x.name)+'</span>'+tag+'<span style="font-size:20px;color:'+(onSel?ACC:'#6d7264')+'">'+(onSel?'☑':'☐')+'</span></div>'; return; }
+    const editBtn = gpx? '' : '<button onclick="editSession(\''+x.id+'\')" style="width:48px;background:#23261e;border-radius:12px;padding:11px 0;font:600 12.5px Barlow;color:#C3C8B8">Éditer</button>';
     h+='<div style="background:#191b18;border:1px solid #26291f;border-radius:18px;padding:13px 14px">'+
-      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="font:600 15.5px Barlow;flex:1;min-width:0">'+esc(x.name)+'</span>'+
-      '<span style="font:700 9.5px Barlow;letter-spacing:.1em;padding:3px 7px;border-radius:5px;background:'+(gpx?'rgba(203,242,78,.14)':'#23261e')+';color:'+(gpx?ACC:'#8A8F80')+'">'+(gpx?'GPX':'INTERVALLES')+'</span></div>'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="font:600 15.5px Barlow;flex:1;min-width:0">'+esc(x.name)+'</span>'+tag+'</div>'+
       '<div style="font:500 12.5px Barlow;color:#8A8F80;margin-bottom:11px">'+meta+'</div>'+
       '<div style="display:flex;align-items:flex-end;gap:2px;height:34px;margin-bottom:11px">'+barsHtml(bars)+'</div>'+
-      '<div style="display:flex;gap:8px"><button onclick="launch(\''+x.id+'\')" style="flex:1;background:#CBF24E;border-radius:12px;padding:11px;font:600 13.5px Barlow;color:#14170a">Lancer</button>'+editBtn+
-      '<button onclick="delSession(\''+x.id+'\')" style="width:52px;background:#23261e;border-radius:12px;padding:11px;font:600 13.5px Barlow;color:#FF7A6B">Suppr</button></div></div>';
+      '<div style="display:flex;gap:6px"><button onclick="launch(\''+x.id+'\')" style="flex:1;background:#CBF24E;border-radius:12px;padding:11px;font:600 13.5px Barlow;color:#14170a">Lancer</button>'+editBtn+
+      '<button onclick="openRename(\'sess\',\''+x.id+'\')" style="width:44px;background:#23261e;border-radius:12px;padding:11px 0;font:600 15px Barlow;color:#C3C8B8">✎</button>'+
+      '<button onclick="delSession(\''+x.id+'\')" style="width:48px;background:#23261e;border-radius:12px;padding:11px 0;font:600 12.5px Barlow;color:#FF7A6B">Suppr</button></div></div>';
   });
   return h+'</div>'; }
 
@@ -367,16 +399,22 @@ function viewHistory(){ const s=st;
   const count=s.history.length? s.history.length+(s.history.length>1?' courses':' course'):'';
   let h='<div style="flex:1;display:flex;flex-direction:column;padding:8px 18px 14px;gap:10px">'+
     '<div style="display:flex;align-items:baseline;justify-content:space-between"><div style="font:600 22px Barlow">Historique</div><div style="font:500 12.5px Barlow;color:#6d7264">'+count+'</div></div>';
+  if(s.history.length) h+=selBar('hist');
   if(!s.history.length) h+='<div style="border:1px dashed #2e3227;border-radius:18px;padding:28px 20px;text-align:center;font:500 13.5px Barlow;color:#6d7264;line-height:1.5">Aucune course enregistrée.<br>Elles arrivent ici avec l\'export FIT (D+ conservé) et TCX.</div>';
   s.history.forEach(hh=>{ const dt=new Date(hh.date), p=n=>String(n).padStart(2,'0');
     const title=hh.name || p(dt.getDate())+'/'+p(dt.getMonth()+1)+' · '+p(dt.getHours())+'h'+p(dt.getMinutes());
     const meta=fmt(hh.dur)+' · '+hh.dplus+' m D+'+(hh.route?' · trace GPS':'');
+    if(selMode.hist){ const onSel=selSet.hist.has(hh.id);
+      h+='<div onclick="selToggle(\'hist\',\''+hh.id+'\')" style="cursor:pointer;background:#191b18;border:1px solid '+(onSel?ACC:'#26291f')+';border-radius:18px;padding:13px 14px;display:flex;align-items:center;gap:10px">'+
+        '<div style="flex:1;min-width:0"><div style="font:600 15.5px Barlow">'+esc(title)+'</div><div style="font:500 12.5px Barlow;color:#8A8F80;margin-top:3px">'+meta+' · '+(hh.dist/1000).toFixed(2)+' km</div></div>'+
+        '<span style="font-size:20px;color:'+(onSel?ACC:'#6d7264')+'">'+(onSel?'☑':'☐')+'</span></div>'; return; }
     h+='<div style="background:#191b18;border:1px solid #26291f;border-radius:18px;padding:13px 14px">'+
       '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px"><div style="min-width:0"><div style="font:600 15.5px Barlow">'+esc(title)+'</div><div style="font:500 12.5px Barlow;color:#8A8F80;margin-top:3px">'+meta+'</div></div>'+
       '<div style="font:600 34px \'Barlow Condensed\';line-height:1;color:#CBF24E;font-variant-numeric:tabular-nums">'+(hh.dist/1000).toFixed(2)+'</div></div>'+
-      '<div style="display:flex;gap:8px;margin-top:11px"><button onclick="histFit(\''+hh.id+'\')" style="flex:1;background:#23261e;border-radius:12px;padding:11px;font:600 13px Barlow;color:#C3C8B8">FIT</button>'+
+      '<div style="display:flex;gap:6px;margin-top:11px"><button onclick="histFit(\''+hh.id+'\')" style="flex:1;background:#23261e;border-radius:12px;padding:11px;font:600 13px Barlow;color:#C3C8B8">FIT</button>'+
       '<button onclick="histTcx(\''+hh.id+'\')" style="flex:1;background:#23261e;border-radius:12px;padding:11px;font:600 13px Barlow;color:#C3C8B8">TCX</button>'+
-      '<button onclick="delHist(\''+hh.id+'\')" style="width:64px;background:#23261e;border-radius:12px;padding:11px;font:600 13px Barlow;color:#FF7A6B">Suppr</button></div></div>';
+      '<button onclick="openRename(\'hist\',\''+hh.id+'\')" style="width:44px;background:#23261e;border-radius:12px;padding:11px 0;font:600 15px Barlow;color:#C3C8B8">✎</button>'+
+      '<button onclick="delHist(\''+hh.id+'\')" style="width:56px;background:#23261e;border-radius:12px;padding:11px 0;font:600 13px Barlow;color:#FF7A6B">Suppr</button></div></div>';
   });
   return h+'</div>'; }
 
