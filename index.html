@@ -27,7 +27,7 @@ const DIM='#23261e', PAST='#4c5142', ACC='#CBF24E';
 const STEP=0.1;
 
 let st={ view:'drive', connected:false, hrOn:false, speed:0, dist:0, dplus:0, elapsed:0, hr:0,
-  spdT:9.5, incT:4, grades:[], sessions:[], history:[], draft:null, buildErr:'', msg:'', msgColor:'#8A8F80',
+  spdT:9.5, incT:4, grades:[], speeds:[], sessions:[], history:[], draft:null, buildErr:'', msg:'', msgColor:'#8A8F80',
   play:null, sheet:false };
 let spdMin=1, spdMax=18, incMin=0, incMax=15;
 let device=null, controlChar=null, hrDevice=null, wakeLock=null;
@@ -69,6 +69,9 @@ async function connect(){
   catch(err){ st.msg='Connexion : '+err.message; st.msgColor='#FF7A6B'; render(); }
 }
 function connectSmart(){ if(knownTm){ setupTreadmill(knownTm).catch(()=>connect()); } else connect(); }
+function paces(sp){ if(!sp||sp<=0) return '— /km · — /mi';
+  const f=secKm=>{ const s=Math.round(secKm); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); };
+  const perKm=3600/sp, perMi=3600/(sp*0.621371); return f(perKm)+' /km · '+f(perMi)+' /mi'; }
 async function reconnectTm(){ if(knownTm){ try{ await setupTreadmill(knownTm); }catch(e){} } }
 function disconnect(){ if(device&&device.gatt.connected) device.gatt.disconnect(); st.connected=false; render(); }
 async function readRanges(svc){
@@ -142,7 +145,7 @@ function launch(id){ const s=st.sessions.find(x=>x.id===id); if(!s) return;
   const play = s.type==='gpx' ? {type:'gpx',session:s,mode:s.hasTime?'gpx':'free',started:false,paused:false}
     : {type:'interval',session:s,idx:0,segElapsed:0,started:false,paused:false};
   const first = s.type==='gpx' ? s.segs[0] : s.segments[0];
-  st.play=play; st.view='play'; st.dist=0; st.dplus=0; st.elapsed=0; st.grades=[];
+  st.play=play; st.view='play'; st.dist=0; st.dplus=0; st.elapsed=0; st.grades=[]; st.speeds=[];
   st.spdT = s.type==='gpx' ? (first.spd||st.spdT) : first.spd;
   st.incT = s.type==='gpx' ? first.grade : first.inc;
   sendControl([0x07]); render(); }
@@ -255,7 +258,8 @@ function tick(){
   const speed=st.speed;
   if(speed>0){ const m=speed/3.6; st.dist+=m; st.dplus+=(curGrade>0?m*curGrade/100:0); st.elapsed+=1;
     rec.push({t:new Date().toISOString(), dist:st.dist, spd:speed, alt:st.dplus, hr:st.hr||0});
-    st.grades.push(st.incT); if(st.grades.length>26) st.grades.shift(); }
+    st.grades.push(st.incT); if(st.grades.length>26) st.grades.shift();
+    st.speeds.push(st.speed); if(st.speeds.length>26) st.speeds.shift(); }
   playAdvance();
   if(st.view==='drive'||st.view==='play') render();
 }
@@ -329,17 +333,23 @@ function stat(lbl,val,sz,col){ return '<div style="background:#191b18;padding:'+
 function graphCard(){ const s=st, play=s.play; let bars,title,right,prog='0%';
   if(play && play.type==='gpx'){ bars=gpxBars(play.session,s.dist); title='PROFIL · '+play.session.name.toUpperCase();
     right=((play.session.totalDist-Math.min(s.dist,play.session.totalDist))/1000).toFixed(1)+' km'; prog=Math.min(100,s.dist/play.session.totalDist*100)+'%'; }
-  else if(s.grades.length>=2){ bars=gradeBars(s.grades); title='PENTE · 25 DERNIÈRES MINUTES'; right=Math.round(s.incT)+' % maintenant'; prog=Math.min(100,s.incT/incMax*100)+'%'; }
+  else if(s.grades.length>=2){ bars=gradeBars(s.grades); title='PENTE + VITESSE · 25 MIN'; right=Math.round(s.incT)+' % · '+s.speed.toFixed(1)+' km/h'; prog=Math.min(100,s.incT/incMax*100)+'%'; }
   else {
     // à l'arrêt, rien lancé : pas de graphe, juste un accès aux séances
     return '<button onclick="go(\'sessions\')" style="margin:6px 18px 0;background:#191b18;border:1px solid #26291f;border-radius:20px;padding:15px;display:flex;align-items:center;justify-content:space-between;gap:10px;width:calc(100% - 36px)">'+
       '<span style="font:600 13.5px Barlow;color:#C3C8B8;text-align:left">Choisir une séance ou un GPX<br><span style="font:500 12px Barlow;color:#6d7264">le profil s\'affiche pendant la course</span></span>'+
       '<span style="font:600 22px Barlow;color:#CBF24E">→</span></button>';
   }
+  const overlay = (!play && s.speeds.length>=2) ? speedLine(s.speeds) : '';
   return '<div style="margin:6px 18px 0;background:#191b18;border:1px solid #26291f;border-radius:20px;padding:13px 14px 11px">'+
     '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px"><span style="font:600 11.5px Barlow;letter-spacing:.12em;color:#8A8F80">'+title+'</span><span style="font:600 12.5px Barlow;color:#C3C8B8">'+right+'</span></div>'+
-    '<div style="display:flex;align-items:flex-end;gap:2px;height:74px">'+barsHtml(bars)+'</div>'+
+    '<div style="position:relative;height:74px"><div style="display:flex;align-items:flex-end;gap:2px;height:74px">'+barsHtml(bars)+'</div>'+overlay+'</div>'+
     '<div style="height:3px;background:#23261e;border-radius:2px;margin-top:9px;display:flex"><div style="background:#CBF24E;border-radius:2px;width:'+prog+'"></div></div></div>'; }
+function speedLine(speeds){ const N=26, arr=speeds.slice(-N); const max=Math.max(...arr, spdMax*0.6, 1);
+  const pad=N-arr.length, pts=[];
+  arr.forEach((v,i)=>{ const x=((pad+i)/(N-1))*100, y=74-(v/max)*70-2; pts.push(x.toFixed(1)+','+y.toFixed(1)); });
+  if(pts.length<2) return '';
+  return '<svg viewBox="0 0 100 74" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:74px;pointer-events:none"><polyline points="'+pts.join(' ')+'" fill="none" stroke="#C3C8B8" stroke-width="1.4" stroke-linejoin="round" vector-effect="non-scaling-stroke" opacity="0.9"/></svg>'; }
 
 function cmdCard(lbl,range,val,down,up){ return '<div style="background:#191b18;border:1px solid #26291f;border-radius:20px;padding:14px 12px">'+
   '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px"><span style="font:600 13px Barlow;letter-spacing:.08em;color:#C3C8B8">'+lbl+'</span><span style="font:500 11px Barlow;color:#6d7264">'+range+'</span></div>'+
@@ -353,7 +363,8 @@ function viewDrive(){ const s=st, running=s.speed>0;
   const hint=running?'Course en cours · l\'app tient l\'allure et la pente, la courroie reste sous ton bouton physique.':'Lance la courroie au bouton du tapis. L\'app pilote ensuite l\'allure et la pente.';
   let h='<div style="flex:1;display:flex;flex-direction:column">'+graphCard()+
     '<div style="text-align:center;padding:18px 20px 0"><div style="font:600 12px Barlow;letter-spacing:.18em;color:#8A8F80">VITESSE RÉELLE</div>'+
-    '<div style="display:flex;align-items:flex-start;justify-content:center;gap:8px;margin-top:2px"><span style="font:700 132px \'Barlow Condensed\';line-height:.82;font-variant-numeric:tabular-nums">'+s.speed.toFixed(1)+'</span><span style="font:600 18px Barlow;color:#8A8F80;margin-top:14px">km/h</span></div></div>'+
+    '<div style="display:flex;align-items:flex-start;justify-content:center;gap:8px;margin-top:2px"><span style="font:700 132px \'Barlow Condensed\';line-height:.82;font-variant-numeric:tabular-nums">'+s.speed.toFixed(1)+'</span><span style="font:600 18px Barlow;color:#8A8F80;margin-top:14px">km/h</span></div>'+
+    '<div style="font:600 12.5px Barlow;color:#8A8F80;letter-spacing:.03em;margin-top:2px">'+paces(s.speed)+'</div></div>'+
     statBar(31)+'<div style="flex:1;min-height:14px"></div>';
   if(showFinish) h+='<button onclick="finishRun()" style="margin:0 18px 10px;background:transparent;border:1px solid #3a3f33;border-radius:16px;padding:13px;font:600 14px Barlow;color:#C3C8B8">Terminer et enregistrer · '+(s.dist/1000).toFixed(2)+' km</button>';
   h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 18px 12px">'+
@@ -488,8 +499,8 @@ function viewSheet(){ const s=st, hrLive=s.hrOn&&s.hr>=0;
     '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div style="font:600 19px Barlow">Appareils</div><button onclick="closeSheet()" style="background:transparent;font:500 22px Barlow;color:#8A8F80;line-height:1">×</button></div>'+
     '<div style="display:flex;align-items:center;gap:12px;background:#191b18;border:1px solid #26291f;border-radius:16px;padding:13px 14px;margin-bottom:8px">'+
     '<span style="width:9px;height:9px;border-radius:99px;background:'+(s.connected?ACC:'#4c5142')+'"></span>'+
-    '<div style="flex:1;min-width:0"><div style="font:600 14.5px Barlow">Tapis roulant</div><div style="font:500 12px Barlow;color:#8A8F80">'+(s.connected?'Connecté en FTMS':(knownTm?'Mémorisé · prêt à reconnecter':'Aucun tapis appairé'))+'</div></div>'+
-    '<button onclick="'+(s.connected?'disconnect()':'connectSmart()')+'" style="background:'+(s.connected?'#23261e':ACC)+';border-radius:11px;padding:10px 14px;font:600 13px Barlow;color:'+(s.connected?'#FF7A6B':'#14170a')+'">'+(s.connected?'Couper':(knownTm?'Reconnecter':'Connecter'))+'</button></div>'+
+    '<div style="flex:1;min-width:0"><div style="font:600 14.5px Barlow">Tapis roulant</div><div style="font:500 12px Barlow;color:#8A8F80">'+(s.connected?'Connecté en FTMS':'Aucun tapis appairé')+'</div></div>'+
+    '<button onclick="'+(s.connected?'disconnect()':'connect()')+'" style="background:'+(s.connected?'#23261e':ACC)+';border-radius:11px;padding:10px 14px;font:600 13px Barlow;color:'+(s.connected?'#FF7A6B':'#14170a')+'">'+(s.connected?'Couper':'Connecter')+'</button></div>'+
     '<div style="display:flex;align-items:center;gap:12px;background:#191b18;border:1px solid #26291f;border-radius:16px;padding:13px 14px;margin-bottom:14px">'+
     '<span style="width:9px;height:9px;border-radius:99px;background:'+(hrLive?'#FF7A6B':'#4c5142')+'"></span>'+
     '<div style="flex:1;min-width:0"><div style="font:600 14.5px Barlow">Ceinture cardio</div><div style="font:500 12px Barlow;color:#8A8F80">'+(hrLive?(s.hr>0?s.hr+' bpm':'Connectée'):'Optionnelle · Bluetooth')+'</div></div>'+
