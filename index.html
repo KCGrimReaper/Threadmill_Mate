@@ -134,13 +134,14 @@ function segAtDist(sess,d){ const segs=sess.segs; for(let i=0;i<segs.length;i++)
 function segIdxAtDist(sess,d){ const segs=sess.segs; for(let i=0;i<segs.length;i++) if(d<segs[i].d1) return i; return segs.length-1; }
 
 // ---------- historique / export ----------
+function unloadPlay(){ st.play=null; st.view='sessions'; render(); }
 function archiveRun(){
   if(rec.length<2) return;
-  const s=[]; for(let i=0;i<rec.length;i+=3) s.push(rec[i]); const last=rec[rec.length-1], first=rec[0];
+  const s=[]; for(let i=0;i<rec.length;i+=5) s.push(rec[i]); const last=rec[rec.length-1], first=rec[0];
   if(s[s.length-1]!==last) s.push(last);
   const entry={id:'r'+Date.now(), date:first.t, name:st.play?st.play.session.name:'', dist:Math.round(last.dist),
     dplus:Math.round(last.alt), dur:Math.round((new Date(last.t)-new Date(first.t))/1000), route:activeRoute||null, samples:s};
-  const arr=[entry].concat(st.history).slice(0,12); persist('tm_history',arr); st.history=arr; rec=[]; }
+  const arr=[entry].concat(st.history).slice(0,50); persist('tm_history',arr); st.history=arr; rec=[]; }
 function finishRun(){ archiveRun(); st.view='history'; st.dist=0; st.dplus=0; st.elapsed=0; st.grades=[]; render(); }
 function delHist(id){ st.history=st.history.filter(x=>x.id!==id); persist('tm_history',st.history); render(); }
 function toggleSelMode(k){ selMode[k]=!selMode[k]; selSet[k].clear(); render(); }
@@ -242,17 +243,20 @@ function tick(){
   if(st.view==='drive'||st.view==='play') render();
 }
 function playAdvance(){ const play=st.play; if(!play||play.paused) return;
-  if(!play.started && st.speed>0) play.started=true;
+  let justStarted=false;
+  if(!play.started && st.speed>0){ play.started=true; justStarted=true; }
   if(play.type==='interval'){ const segs=play.session.segments, seg=segs[play.idx];
     if(play.started && st.speed>0) play.segElapsed=(play.segElapsed||0)+1;
-    if(play.segElapsed>=seg.dur){ if(play.idx+1>=segs.length){ doStop(); return; } play.idx++; play.segElapsed=0; }
-    const cur=segs[play.idx]; applyTargets(cur.spd,cur.inc);
+    let advanced=false;
+    if(play.segElapsed>=seg.dur){ if(play.idx+1>=segs.length){ doStop(); return; } play.idx++; play.segElapsed=0; advanced=true; }
+    const cur=segs[play.idx]; applyTargets(cur.spd,cur.inc, justStarted||advanced);
   }else{ const sess=play.session, seg=segAtDist(sess,st.dist);
     if(play.started && st.dist>=sess.totalDist){ doStop(); return; }
-    applyTargets(play.mode==='gpx' && seg.spd!=null ? seg.spd : null, seg.grade); }
+    applyTargets(play.mode==='gpx' && seg.spd!=null ? seg.spd : null, seg.grade, justStarted); }
 }
-function applyTargets(spd,inc){ if(spd!=null && Math.abs(spd-st.spdT)>0.05){ st.spdT=spd; sendSpeed(spd); }
-  if(inc!=null && Math.abs(inc-st.incT)>0.15){ st.incT=+inc.toFixed(1); sendIncline(inc); } }
+function applyTargets(spd,inc,force){
+  if(spd!=null && (force || Math.abs(spd-st.spdT)>0.05 || Math.abs(st.speed-spd)>0.3)){ st.spdT=spd; sendSpeed(spd); }
+  if(inc!=null && (force || Math.abs(inc-st.incT)>0.15)){ st.incT=+inc.toFixed(1); sendIncline(inc); } }
 
 // ---------- navigation ----------
 function go(v){ st.view=v; if(v==='sessions') st.msg=''; render(); }
@@ -405,19 +409,22 @@ function viewHistory(){ const s=st;
   if(s.history.length) h+=selBar('hist');
   if(!s.history.length) h+='<div style="border:1px dashed #2e3227;border-radius:18px;padding:28px 20px;text-align:center;font:500 13.5px Barlow;color:#6d7264;line-height:1.5">Aucune course enregistrée.<br>Elles arrivent ici avec l\'export FIT (D+ conservé) et TCX.</div>';
   s.history.forEach(hh=>{ const dt=new Date(hh.date), p=n=>String(n).padStart(2,'0');
-    const title=hh.name || p(dt.getDate())+'/'+p(dt.getMonth()+1)+' · '+p(dt.getHours())+'h'+p(dt.getMinutes());
-    const meta=fmt(hh.dur)+' · '+hh.dplus+' m D+'+(hh.route?' · trace GPS':'');
+    const dateStr=p(dt.getDate())+'/'+p(dt.getMonth()+1)+'/'+String(dt.getFullYear()).slice(2)+' · '+p(dt.getHours())+'h'+p(dt.getMinutes());
+    const title=hh.name || dateStr;
+    const meta=(hh.name?dateStr+' · ':'')+fmt(hh.dur)+' · '+hh.dplus+' m D+'+(hh.route?' · GPS':'');
     if(selMode.hist){ const onSel=selSet.hist.has(hh.id);
-      h+='<div onclick="selToggle(\'hist\',\''+hh.id+'\')" style="cursor:pointer;background:#191b18;border:1px solid '+(onSel?ACC:'#26291f')+';border-radius:18px;padding:13px 14px;display:flex;align-items:center;gap:10px">'+
-        '<div style="flex:1;min-width:0"><div style="font:600 15.5px Barlow">'+esc(title)+'</div><div style="font:500 12.5px Barlow;color:#8A8F80;margin-top:3px">'+meta+' · '+(hh.dist/1000).toFixed(2)+' km</div></div>'+
-        '<span style="font-size:20px;color:'+(onSel?ACC:'#6d7264')+'">'+(onSel?'☑':'☐')+'</span></div>'; return; }
-    h+='<div style="background:#191b18;border:1px solid #26291f;border-radius:18px;padding:13px 14px">'+
-      '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px"><div style="min-width:0"><div style="font:600 15.5px Barlow">'+esc(title)+'</div><div style="font:500 12.5px Barlow;color:#8A8F80;margin-top:3px">'+meta+'</div></div>'+
-      '<div style="font:600 34px \'Barlow Condensed\';line-height:1;color:#CBF24E;font-variant-numeric:tabular-nums">'+(hh.dist/1000).toFixed(2)+'</div></div>'+
-      '<div style="display:flex;gap:6px;margin-top:11px"><button onclick="histFit(\''+hh.id+'\')" style="flex:1;background:#23261e;border-radius:12px;padding:11px;font:600 13px Barlow;color:#C3C8B8">FIT</button>'+
-      '<button onclick="histTcx(\''+hh.id+'\')" style="flex:1;background:#23261e;border-radius:12px;padding:11px;font:600 13px Barlow;color:#C3C8B8">TCX</button>'+
-      '<button onclick="openRename(\'hist\',\''+hh.id+'\')" style="width:44px;background:#23261e;border-radius:12px;padding:11px 0;font:600 15px Barlow;color:#C3C8B8">✎</button>'+
-      '<button onclick="delHist(\''+hh.id+'\')" style="width:56px;background:#23261e;border-radius:12px;padding:11px 0;font:600 13px Barlow;color:#FF7A6B">Suppr</button></div></div>';
+      h+='<div onclick="selToggle(\'hist\',\''+hh.id+'\')" style="cursor:pointer;background:#191b18;border:1px solid '+(onSel?ACC:'#26291f')+';border-radius:14px;padding:11px 13px;display:flex;align-items:center;gap:10px">'+
+        '<div style="flex:1;min-width:0"><div style="font:600 14px Barlow">'+esc(title)+'</div><div style="font:500 11.5px Barlow;color:#8A8F80;margin-top:2px">'+meta+' · '+(hh.dist/1000).toFixed(2)+' km</div></div>'+
+        '<span style="font-size:19px;color:'+(onSel?ACC:'#6d7264')+'">'+(onSel?'☑':'☐')+'</span></div>'; return; }
+    h+='<div style="background:#191b18;border:1px solid #26291f;border-radius:14px;padding:11px 13px">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">'+
+      '<div style="min-width:0;flex:1"><div style="font:600 14px Barlow;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(title)+'</div><div style="font:500 11.5px Barlow;color:#8A8F80;margin-top:2px">'+meta+'</div></div>'+
+      '<div style="font:600 26px \'Barlow Condensed\';line-height:1;color:#CBF24E;font-variant-numeric:tabular-nums">'+(hh.dist/1000).toFixed(2)+'</div></div>'+
+      '<div style="display:flex;gap:6px;margin-top:9px">'+
+      '<button onclick="histFit(\''+hh.id+'\')" style="flex:1;background:#23261e;border-radius:10px;padding:9px;font:600 12px Barlow;color:#C3C8B8">FIT</button>'+
+      '<button onclick="histTcx(\''+hh.id+'\')" style="flex:1;background:#23261e;border-radius:10px;padding:9px;font:600 12px Barlow;color:#C3C8B8">TCX</button>'+
+      '<button onclick="openRename(\'hist\',\''+hh.id+'\')" style="width:42px;background:#23261e;border-radius:10px;padding:9px 0;font:600 14px Barlow;color:#C3C8B8">✎</button>'+
+      '<button onclick="delHist(\''+hh.id+'\')" style="width:52px;background:#23261e;border-radius:10px;padding:9px 0;font:600 12px Barlow;color:#FF7A6B">Suppr</button></div></div>';
   });
   return h+'</div>'; }
 
@@ -451,9 +458,13 @@ function viewPlay(){ const s=st, play=s.play; if(!play) return '';
     '<button class="stepbtn" onclick="adjSpd(-'+STEP+')" style="width:74px;height:62px;background:#23261e;border-radius:14px;font:400 28px Barlow;color:#CBF24E">−</button>'+
     '<div style="flex:1;text-align:center"><div style="font:600 42px \'Barlow Condensed\';line-height:.9;color:#CBF24E;font-variant-numeric:tabular-nums">'+s.spdT.toFixed(1)+'</div><div style="font:600 10px Barlow;letter-spacing:.12em;color:#8A8F80">ALLURE LIBRE KM/H</div></div>'+
     '<button class="stepbtn" onclick="adjSpd('+STEP+')" style="width:74px;height:62px;background:#CBF24E;border-radius:14px;font:400 28px Barlow;color:#14170a">+</button></div>';
-  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 18px 14px">'+
-    '<button onclick="playPause()" style="background:#23261e;border-radius:16px;padding:15px;font:600 15px Barlow;color:#F2F4EE">'+(play.paused?'Reprendre':'Pause')+'</button>'+
-    '<button onclick="doStop()" style="background:transparent;border:1px solid #4a2f2b;border-radius:16px;padding:15px;font:600 15px Barlow;color:#FF7A6B">Terminer</button></div></div>';
+  if(!play.started){
+    h+='<div style="padding:0 18px 14px"><button onclick="unloadPlay()" style="width:100%;background:transparent;border:1px solid #3a3f33;border-radius:16px;padding:15px;font:600 15px Barlow;color:#C3C8B8">Décharger la séance</button></div></div>';
+  } else {
+    h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 18px 14px">'+
+      '<button onclick="playPause()" style="background:#23261e;border-radius:16px;padding:15px;font:600 15px Barlow;color:#F2F4EE">'+(play.paused?'Reprendre':'Pause')+'</button>'+
+      '<button onclick="doStop()" style="background:transparent;border:1px solid #4a2f2b;border-radius:16px;padding:15px;font:600 15px Barlow;color:#FF7A6B">Terminer</button></div></div>';
+  }
   return h; }
 
 function viewSheet(){ const s=st, hrLive=s.hrOn&&s.hr>=0;
