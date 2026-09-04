@@ -33,7 +33,7 @@ let spdMin=1, spdMax=18, incMin=0, incMax=15;
 let device=null, controlChar=null, hrDevice=null, wakeLock=null;
 let rec=[], activeRoute=null, gattQueue=Promise.resolve(), lastTs=0, curGrade=0;
 let selMode={hist:false,sess:false}, selSet={hist:new Set(),sess:new Set()}, renaming=null;
-let knownTm=null, knownHr=null;
+let knownTm=null, knownHr=null, freeStarted=false;
 
 // ---------- utils ----------
 function loadLS(k){ try{ return JSON.parse(localStorage.getItem(k)||'[]'); }catch(e){ return []; } }
@@ -256,6 +256,9 @@ function barsHtml(bars){ return bars.map(b=>'<div style="flex:'+(b.flex||1)+';mi
 function tick(){
   if(!st.connected) return;
   const speed=st.speed;
+  // course libre (pas de séance) : dès que la courroie démarre, pousse la consigne d'allure/pente
+  if(!st.play){ if(speed>0 && !freeStarted){ freeStarted=true; sendSpeed(st.spdT); sendIncline(st.incT); }
+    else if(speed>0 && Math.abs(speed-st.spdT)>0.3){ sendSpeed(st.spdT); } if(speed<=0) freeStarted=false; }
   if(speed>0){ const m=speed/3.6; st.dist+=m; st.dplus+=(curGrade>0?m*curGrade/100:0); st.elapsed+=1;
     rec.push({t:new Date().toISOString(), dist:st.dist, spd:speed, alt:st.dplus, hr:st.hr||0});
     st.grades.push(st.incT); if(st.grades.length>26) st.grades.shift();
@@ -341,9 +344,12 @@ function graphCard(){ const s=st, play=s.play; let bars,title,right,prog='0%';
       '<span style="font:600 22px Barlow;color:#CBF24E">→</span></button>';
   }
   const overlay = (!play && s.speeds.length>=2) ? speedLine(s.speeds) : '';
+  const isLive = !play && s.grades.length>=2;
+  const scale = isLive ? '<div style="position:absolute;top:2px;left:4px;font:600 9px Barlow;color:#6d7264">'+Math.max(...s.grades.slice(-26),incMax*0.5).toFixed(0)+'% ▬</div>'+
+    '<div style="position:absolute;top:2px;right:4px;font:600 9px Barlow;color:#8f978a">— '+Math.max(...s.speeds.slice(-26),spdMax*0.6,1).toFixed(0)+' km/h</div>' : '';
   return '<div style="margin:6px 18px 0;background:#191b18;border:1px solid #26291f;border-radius:20px;padding:13px 14px 11px">'+
     '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px"><span style="font:600 11.5px Barlow;letter-spacing:.12em;color:#8A8F80">'+title+'</span><span style="font:600 12.5px Barlow;color:#C3C8B8">'+right+'</span></div>'+
-    '<div style="position:relative;height:74px"><div style="display:flex;align-items:flex-end;gap:2px;height:74px">'+barsHtml(bars)+'</div>'+overlay+'</div>'+
+    '<div style="position:relative;height:74px"><div style="display:flex;align-items:flex-end;gap:2px;height:74px">'+barsHtml(bars)+'</div>'+overlay+scale+'</div>'+
     '<div style="height:3px;background:#23261e;border-radius:2px;margin-top:9px;display:flex"><div style="background:#CBF24E;border-radius:2px;width:'+prog+'"></div></div></div>'; }
 function speedLine(speeds){ const N=26, arr=speeds.slice(-N); const max=Math.max(...arr, spdMax*0.6, 1);
   const pad=N-arr.length, pts=[];
