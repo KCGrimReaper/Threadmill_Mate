@@ -212,7 +212,9 @@ async function onGpx(e){ const file=e.target.files&&e.target.files[0]; if(!file)
       if(hasTime){ const dt=(new Date(pts[end].time)-new Date(pts[start].time))/1000; if(dt>0) spd=clamp(sd/dt*3.6,1,18); }
       segs.push({d0:pts[start].d,d1:pts[end].d,grade:+grade.toFixed(1),spd:spd!=null?+spd.toFixed(1):null}); start=end; }
     let dplus=0; for(let i=1;i<pts.length;i++){ const dz=pts[i].ele-pts[i-1].ele; if(dz>0) dplus+=dz; }
-    const sess={id:'g'+Date.now(), type:'gpx', name:file.name.replace(/\.gpx$/i,''), hasTime, totalDist:Math.round(cum), totalDplus:Math.round(dplus), segs,
+    let nm=file.name.replace(/\.gpx$/i,'').replace(/^\d+[-_]*/,'').replace(/[-_]+/g,' ').replace(/\s+/g,' ').trim();
+    if(!nm) nm=file.name.replace(/\.gpx$/i,'');
+    const sess={id:'g'+Date.now(), type:'gpx', name:nm, hasTime, totalDist:Math.round(cum), totalDplus:Math.round(dplus), segs,
       track:pts.map(p=>({d:+p.d.toFixed(1),lat:p.lat,lon:p.lon,ele:+p.ele.toFixed(1)}))};
     st.sessions=st.sessions.concat([sess]); persist('tm_sessions',st.sessions);
     st.msg='Importé : '+(cum/1000).toFixed(2)+' km · '+Math.round(dplus)+' m D+'+(hasTime?' · allure incluse':' · profil seul'); st.msgColor=ACC; render();
@@ -303,19 +305,20 @@ function stat(lbl,val,sz,col){ return '<div style="background:#191b18;padding:'+
   '<div style="font:600 10.5px Barlow;letter-spacing:.1em;color:#8A8F80">'+lbl+'</div>'+
   '<div style="font:600 '+sz+'px \'Barlow Condensed\';line-height:1'+(col?';color:'+col:'')+';font-variant-numeric:tabular-nums">'+val+'</div></div>'; }
 
-function graphCard(){ const s=st, play=s.play; let bars,title,right,prog='0%',empty=false;
+function graphCard(){ const s=st, play=s.play; let bars,title,right,prog='0%';
   if(play && play.type==='gpx'){ bars=gpxBars(play.session,s.dist); title='PROFIL · '+play.session.name.toUpperCase();
     right=((play.session.totalDist-Math.min(s.dist,play.session.totalDist))/1000).toFixed(1)+' km'; prog=Math.min(100,s.dist/play.session.totalDist*100)+'%'; }
   else if(s.grades.length>=2){ bars=gradeBars(s.grades); title='PENTE · 25 DERNIÈRES MINUTES'; right=Math.round(s.incT)+' % maintenant'; prog=Math.min(100,s.incT/incMax*100)+'%'; }
-  else { const lastGpx=s.sessions.filter(x=>x.type==='gpx').pop();
-    if(lastGpx){ bars=gpxBars(lastGpx,0).map(b=>({h:b.h,color:b.color===ACC?'#3c4234':'#2c3025'})); title='PROFIL PRÊT · '+lastGpx.name.toUpperCase(); right=(lastGpx.totalDist/1000).toFixed(1)+' km · '+lastGpx.totalDplus+' m D+'; }
-    else { empty=true; title='PROFIL DE LA COURSE'; right='en attente'; } }
-  const inner = empty
-    ? '<div style="height:74px;border:1px dashed #2e3227;border-radius:12px;display:flex;align-items:center;justify-content:center;text-align:center;padding:0 16px"><span style="font:500 12.5px Barlow;color:#6d7264;line-height:1.45">Le profil se dessine dès que la courroie tourne — ou lance une séance GPX pour voir le parcours à venir.</span></div>'
-    : '<div style="display:flex;align-items:flex-end;gap:2px;height:74px">'+barsHtml(bars)+'</div>';
+  else {
+    // à l'arrêt, rien lancé : pas de graphe, juste un accès aux séances
+    return '<button onclick="go(\'sessions\')" style="margin:6px 18px 0;background:#191b18;border:1px solid #26291f;border-radius:20px;padding:15px;display:flex;align-items:center;justify-content:space-between;gap:10px;width:calc(100% - 36px)">'+
+      '<span style="font:600 13.5px Barlow;color:#C3C8B8;text-align:left">Choisir une séance ou un GPX<br><span style="font:500 12px Barlow;color:#6d7264">le profil s\'affiche pendant la course</span></span>'+
+      '<span style="font:600 22px Barlow;color:#CBF24E">→</span></button>';
+  }
   return '<div style="margin:6px 18px 0;background:#191b18;border:1px solid #26291f;border-radius:20px;padding:13px 14px 11px">'+
     '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px"><span style="font:600 11.5px Barlow;letter-spacing:.12em;color:#8A8F80">'+title+'</span><span style="font:600 12.5px Barlow;color:#C3C8B8">'+right+'</span></div>'+
-    inner+'<div style="height:3px;background:#23261e;border-radius:2px;margin-top:9px;display:flex"><div style="background:#CBF24E;border-radius:2px;width:'+prog+'"></div></div></div>'; }
+    '<div style="display:flex;align-items:flex-end;gap:2px;height:74px">'+barsHtml(bars)+'</div>'+
+    '<div style="height:3px;background:#23261e;border-radius:2px;margin-top:9px;display:flex"><div style="background:#CBF24E;border-radius:2px;width:'+prog+'"></div></div></div>'; }
 
 function cmdCard(lbl,range,val,down,up){ return '<div style="background:#191b18;border:1px solid #26291f;border-radius:20px;padding:14px 12px">'+
   '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px"><span style="font:600 13px Barlow;letter-spacing:.08em;color:#C3C8B8">'+lbl+'</span><span style="font:500 11px Barlow;color:#6d7264">'+range+'</span></div>'+
