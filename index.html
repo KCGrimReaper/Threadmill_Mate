@@ -151,7 +151,7 @@ function segAtDist(sess,d){ const segs=sess.segs; for(let i=0;i<segs.length;i++)
 function segIdxAtDist(sess,d){ const segs=sess.segs; for(let i=0;i<segs.length;i++) if(d<segs[i].d1) return i; return segs.length-1; }
 
 // ---------- historique / export ----------
-function unloadPlay(){ st.play=null; st.view='sessions'; render(); }
+function unloadPlay(){ st.play=null; st.view='drive'; render(); }
 function archiveRun(){
   if(rec.length<2) return;
   const s=[]; for(let i=0;i<rec.length;i+=5) s.push(rec[i]); const last=rec[rec.length-1], first=rec[0];
