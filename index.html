@@ -33,6 +33,7 @@ let spdMin=1, spdMax=18, incMin=0, incMax=15;
 let device=null, controlChar=null, hrDevice=null, wakeLock=null;
 let rec=[], activeRoute=null, gattQueue=Promise.resolve(), lastTs=0, curGrade=0;
 let selMode={hist:false,sess:false}, selSet={hist:new Set(),sess:new Set()}, renaming=null;
+let knownTm=null, knownHr=null;
 
 // ---------- utils ----------
 function loadLS(k){ try{ return JSON.parse(localStorage.getItem(k)||'[]'); }catch(e){ return []; } }
@@ -45,41 +46,57 @@ function esc(s){ return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>
 function clamp(v,a,b){ return Math.min(b,Math.max(a,v)); }
 
 // ---------- BLE ----------
+async function setupTreadmill(dev){
+  device=dev;
+  device.addEventListener('gattserverdisconnected', ()=>{ archiveRun(); st.connected=false; render(); });
+  const server=await device.gatt.connect();
+  const svc=await server.getPrimaryService(FTMS);
+  const dataCh=await svc.getCharacteristic(DATA);
+  await dataCh.startNotifications();
+  dataCh.addEventListener('characteristicvaluechanged', e=>parseData(e.target.value));
+  controlChar=await svc.getCharacteristic(CONTROL);
+  await controlChar.startNotifications();
+  await readRanges(svc);
+  await sendControl([0x00]); sendControl([0x07]);
+  st.connected=true; st.dist=0; st.dplus=0; st.elapsed=0; rec=[]; st.sheet=false;
+  try{ if('wakeLock' in navigator) wakeLock=await navigator.wakeLock.request('screen'); }catch(e){}
+  try{ localStorage.setItem('tm_tmid', device.id); }catch(e){}
+  render();
+}
 async function connect(){
   if(!navigator.bluetooth){ st.msg='Web Bluetooth requis (Chrome, HTTPS/localhost).'; st.msgColor='#FF7A6B'; render(); return; }
-  try{
-    device = await navigator.bluetooth.requestDevice({filters:[{services:[FTMS]}], optionalServices:[FTMS,0xfff0]});
-    device.addEventListener('gattserverdisconnected', ()=>{ archiveRun(); st.connected=false; render(); });
-    const server=await device.gatt.connect();
-    const svc=await server.getPrimaryService(FTMS);
-    const dataCh=await svc.getCharacteristic(DATA);
-    await dataCh.startNotifications();
-    dataCh.addEventListener('characteristicvaluechanged', e=>parseData(e.target.value));
-    controlChar=await svc.getCharacteristic(CONTROL);
-    await controlChar.startNotifications();
-    await readRanges(svc);
-    await sendControl([0x00]); sendControl([0x07]);
-    st.connected=true; st.dist=0; st.dplus=0; st.elapsed=0; rec=[]; st.sheet=false;
-    try{ if('wakeLock' in navigator) wakeLock=await navigator.wakeLock.request('screen'); }catch(e){}
-    render();
-  }catch(err){ st.msg='Connexion : '+err.message; st.msgColor='#FF7A6B'; render(); }
+  try{ const dev=await navigator.bluetooth.requestDevice({filters:[{services:[FTMS]}], optionalServices:[FTMS,0xfff0]}); await setupTreadmill(dev); }
+  catch(err){ st.msg='Connexion : '+err.message; st.msgColor='#FF7A6B'; render(); }
 }
+function connectSmart(){ if(knownTm){ setupTreadmill(knownTm).catch(()=>connect()); } else connect(); }
+async function reconnectTm(){ if(knownTm){ try{ await setupTreadmill(knownTm); }catch(e){} } }
 function disconnect(){ if(device&&device.gatt.connected) device.gatt.disconnect(); st.connected=false; render(); }
 async function readRanges(svc){
   try{ const d=await (await svc.getCharacteristic(SPD_RANGE)).readValue(); spdMin=d.getUint16(0,true)*0.01; spdMax=d.getUint16(2,true)*0.01; }catch(e){}
   try{ const d=await (await svc.getCharacteristic(INC_RANGE)).readValue(); incMin=d.getInt16(0,true)*0.1; incMax=d.getInt16(2,true)*0.1; }catch(e){}
 }
+async function setupHr(dev){
+  hrDevice=dev;
+  hrDevice.addEventListener('gattserverdisconnected', ()=>{ st.hrOn=false; st.hr=0; render(); });
+  const s=await hrDevice.gatt.connect();
+  const ch=await (await s.getPrimaryService(HR_SVC)).getCharacteristic(HR_MEAS);
+  await ch.startNotifications();
+  ch.addEventListener('characteristicvaluechanged', e=>{ const dv=e.target.value,f=dv.getUint8(0); st.hr=(f&1)?dv.getUint16(1,true):dv.getUint8(1); render(); });
+  st.hrOn=true; try{ localStorage.setItem('tm_hrid', hrDevice.id); }catch(e){} render();
+}
 async function pairHr(){
   if(!navigator.bluetooth) return;
-  try{
-    hrDevice=await navigator.bluetooth.requestDevice({filters:[{services:[HR_SVC]}]});
-    hrDevice.addEventListener('gattserverdisconnected', ()=>{ st.hrOn=false; st.hr=0; render(); });
-    const s=await hrDevice.gatt.connect();
-    const ch=await (await s.getPrimaryService(HR_SVC)).getCharacteristic(HR_MEAS);
-    await ch.startNotifications();
-    ch.addEventListener('characteristicvaluechanged', e=>{ const dv=e.target.value,f=dv.getUint8(0); st.hr=(f&1)?dv.getUint16(1,true):dv.getUint8(1); render(); });
-    st.hrOn=true; render();
-  }catch(err){ st.msg='Cardio : '+err.message; st.msgColor='#FF7A6B'; render(); }
+  if(knownHr && !st.hrOn){ try{ await setupHr(knownHr); return; }catch(e){} }
+  try{ const dev=await navigator.bluetooth.requestDevice({filters:[{services:[HR_SVC]}]}); await setupHr(dev); }
+  catch(err){ st.msg='Cardio : '+err.message; st.msgColor='#FF7A6B'; render(); }
+}
+async function loadKnown(){
+  try{ if(!navigator.bluetooth || !navigator.bluetooth.getDevices) return;
+    const ds=await navigator.bluetooth.getDevices();
+    const tmId=localStorage.getItem('tm_tmid'), hrId=localStorage.getItem('tm_hrid');
+    knownTm=ds.find(d=>d.id===tmId)||null; knownHr=ds.find(d=>d.id===hrId)||null; render();
+    if(knownTm) reconnectTm(); if(knownHr && !st.hrOn){ try{ await setupHr(knownHr); }catch(e){} }
+  }catch(e){}
 }
 function sendControl(bytes){ if(!controlChar) return Promise.resolve();
   gattQueue=gattQueue.then(async()=>{ try{ await controlChar.writeValueWithResponse(new Uint8Array(bytes)); }catch(e){} }); return gattQueue; }
@@ -443,7 +460,9 @@ function viewPlay(){ const s=st, play=s.play; if(!play) return '';
     next=nx?'à venir : pente '+nx.grade.toFixed(1)+' %':'fin du parcours'; pSpd=(play.mode==='gpx'&&seg.spd!=null)?seg.spd.toFixed(1):s.spdT.toFixed(1); pInc=String(Math.round(seg.grade)); }
   let h='<div style="flex:1;display:flex;flex-direction:column">'+
     '<div style="padding:2px 18px 0;display:flex;align-items:baseline;justify-content:space-between"><div style="font:600 16px Barlow">'+esc(sess.name)+'</div><div style="font:600 12.5px Barlow;color:#8A8F80">'+mode+'</div></div>';
-  if(!play.started) h+='<div style="margin:10px 18px 0;background:rgba(203,242,78,.09);border:1px solid #3d4a1c;border-radius:14px;padding:11px 13px;font:600 12.5px Barlow;color:#CBF24E;text-align:center;line-height:1.4">Séance chargée · lance la courroie au bouton du tapis</div>';
+  if(!play.started) h+='<div style="margin:10px 18px 0;background:rgba(203,242,78,.09);border:1px solid #3d4a1c;border-radius:14px;padding:11px 13px;display:flex;align-items:center;gap:10px">'+
+    '<span style="flex:1;font:600 12.5px Barlow;color:#CBF24E;line-height:1.4">Séance chargée · lance la courroie au bouton du tapis</span>'+
+    '<button onclick="unloadPlay()" title="Décharger" style="background:transparent;font:500 20px Barlow;color:#CBF24E;line-height:1;padding:0 2px">×</button></div>';
   h+='<div style="margin:10px 18px 0;background:#191b18;border:1px solid #26291f;border-radius:20px;padding:13px 14px 12px">'+
     '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px"><span style="font:600 11.5px Barlow;letter-spacing:.12em;color:#8A8F80">'+block+'</span><span style="font:600 13px Barlow;color:#C3C8B8">'+rem+'</span></div>'+
     '<div style="display:flex;align-items:flex-end;gap:2px;height:70px">'+barsHtml(bars)+'</div>'+
@@ -458,13 +477,9 @@ function viewPlay(){ const s=st, play=s.play; if(!play) return '';
     '<button class="stepbtn" onclick="adjSpd(-'+STEP+')" style="width:74px;height:62px;background:#23261e;border-radius:14px;font:400 28px Barlow;color:#CBF24E">−</button>'+
     '<div style="flex:1;text-align:center"><div style="font:600 42px \'Barlow Condensed\';line-height:.9;color:#CBF24E;font-variant-numeric:tabular-nums">'+s.spdT.toFixed(1)+'</div><div style="font:600 10px Barlow;letter-spacing:.12em;color:#8A8F80">ALLURE LIBRE KM/H</div></div>'+
     '<button class="stepbtn" onclick="adjSpd('+STEP+')" style="width:74px;height:62px;background:#CBF24E;border-radius:14px;font:400 28px Barlow;color:#14170a">+</button></div>';
-  if(!play.started){
-    h+='<div style="padding:0 18px 14px"><button onclick="unloadPlay()" style="width:100%;background:transparent;border:1px solid #3a3f33;border-radius:16px;padding:15px;font:600 15px Barlow;color:#C3C8B8">Décharger la séance</button></div></div>';
-  } else {
-    h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 18px 14px">'+
-      '<button onclick="playPause()" style="background:#23261e;border-radius:16px;padding:15px;font:600 15px Barlow;color:#F2F4EE">'+(play.paused?'Reprendre':'Pause')+'</button>'+
-      '<button onclick="doStop()" style="background:transparent;border:1px solid #4a2f2b;border-radius:16px;padding:15px;font:600 15px Barlow;color:#FF7A6B">Terminer</button></div></div>';
-  }
+  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 18px 14px">'+
+    '<button onclick="playPause()" style="background:#23261e;border-radius:16px;padding:15px;font:600 15px Barlow;color:#F2F4EE">'+(play.paused?'Reprendre':'Pause')+'</button>'+
+    '<button onclick="doStop()" style="background:transparent;border:1px solid #4a2f2b;border-radius:16px;padding:15px;font:600 15px Barlow;color:#FF7A6B">Terminer</button></div></div>';
   return h; }
 
 function viewSheet(){ const s=st, hrLive=s.hrOn&&s.hr>=0;
@@ -473,8 +488,8 @@ function viewSheet(){ const s=st, hrLive=s.hrOn&&s.hr>=0;
     '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div style="font:600 19px Barlow">Appareils</div><button onclick="closeSheet()" style="background:transparent;font:500 22px Barlow;color:#8A8F80;line-height:1">×</button></div>'+
     '<div style="display:flex;align-items:center;gap:12px;background:#191b18;border:1px solid #26291f;border-radius:16px;padding:13px 14px;margin-bottom:8px">'+
     '<span style="width:9px;height:9px;border-radius:99px;background:'+(s.connected?ACC:'#4c5142')+'"></span>'+
-    '<div style="flex:1;min-width:0"><div style="font:600 14.5px Barlow">Tapis roulant</div><div style="font:500 12px Barlow;color:#8A8F80">'+(s.connected?'Connecté en FTMS':'Aucun tapis appairé')+'</div></div>'+
-    '<button onclick="'+(s.connected?'disconnect()':'connect()')+'" style="background:'+(s.connected?'#23261e':ACC)+';border-radius:11px;padding:10px 14px;font:600 13px Barlow;color:'+(s.connected?'#FF7A6B':'#14170a')+'">'+(s.connected?'Couper':'Connecter')+'</button></div>'+
+    '<div style="flex:1;min-width:0"><div style="font:600 14.5px Barlow">Tapis roulant</div><div style="font:500 12px Barlow;color:#8A8F80">'+(s.connected?'Connecté en FTMS':(knownTm?'Mémorisé · prêt à reconnecter':'Aucun tapis appairé'))+'</div></div>'+
+    '<button onclick="'+(s.connected?'disconnect()':'connectSmart()')+'" style="background:'+(s.connected?'#23261e':ACC)+';border-radius:11px;padding:10px 14px;font:600 13px Barlow;color:'+(s.connected?'#FF7A6B':'#14170a')+'">'+(s.connected?'Couper':(knownTm?'Reconnecter':'Connecter'))+'</button></div>'+
     '<div style="display:flex;align-items:center;gap:12px;background:#191b18;border:1px solid #26291f;border-radius:16px;padding:13px 14px;margin-bottom:14px">'+
     '<span style="width:9px;height:9px;border-radius:99px;background:'+(hrLive?'#FF7A6B':'#4c5142')+'"></span>'+
     '<div style="flex:1;min-width:0"><div style="font:600 14.5px Barlow">Ceinture cardio</div><div style="font:500 12px Barlow;color:#8A8F80">'+(hrLive?(s.hr>0?s.hr+' bpm':'Connectée'):'Optionnelle · Bluetooth')+'</div></div>'+
@@ -486,6 +501,7 @@ document.getElementById('gpxFile').addEventListener('change', onGpx);
 st.sessions=loadLS('tm_sessions'); st.history=loadLS('tm_history');
 setInterval(tick,1000);
 render();
+loadKnown();
 </script>
 </body>
 </html>
