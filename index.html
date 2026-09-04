@@ -69,9 +69,13 @@ async function connect(){
   catch(err){ st.msg='Connexion : '+err.message; st.msgColor='#FF7A6B'; render(); }
 }
 function connectSmart(){ if(knownTm){ setupTreadmill(knownTm).catch(()=>connect()); } else connect(); }
-function paces(sp){ if(!sp||sp<=0) return '— /km · — /mi';
-  const f=secKm=>{ const s=Math.round(secKm); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); };
-  const perKm=3600/sp, perMi=3600/(sp*0.621371); return f(perKm)+' /km · '+f(perMi)+' /mi'; }
+function paces(sp, dist, dplus){ const f=secKm=>{ const s=Math.round(secKm); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); };
+  if(!sp||sp<=0) return '— /km · — /kme';
+  const perKm=3600/sp;
+  // km-effort = km + D+/100 ; allure kme = allure km ajustée du facteur distance/distance-effort
+  let kme='—';
+  if(dist>50){ const km=dist/1000, effort=km + (dplus||0)/100; if(effort>0) kme=f(perKm*(km/effort)); }
+  return f(perKm)+' /km · '+kme+' /kme'; }
 async function reconnectTm(){ if(knownTm){ try{ await setupTreadmill(knownTm); }catch(e){} } }
 function disconnect(){ if(device&&device.gatt.connected) device.gatt.disconnect(); st.connected=false; render(); }
 async function readRanges(svc){
@@ -336,7 +340,9 @@ function stat(lbl,val,sz,col){ return '<div style="background:#191b18;padding:'+
 function graphCard(){ const s=st, play=s.play; let bars,title,right,prog='0%';
   if(play && play.type==='gpx'){ bars=gpxBars(play.session,s.dist); title='PROFIL · '+play.session.name.toUpperCase();
     right=((play.session.totalDist-Math.min(s.dist,play.session.totalDist))/1000).toFixed(1)+' km'; prog=Math.min(100,s.dist/play.session.totalDist*100)+'%'; }
-  else if(s.grades.length>=2){ bars=gradeBars(s.grades); title='PENTE + VITESSE · 25 MIN'; right=Math.round(s.incT)+' % · '+s.speed.toFixed(1)+' km/h'; prog=Math.min(100,s.incT/incMax*100)+'%'; }
+  else if(s.grades.length>=2){ bars=gradeBars(s.grades);
+    const pMax=Math.max(...s.grades.slice(-26),1).toFixed(0), vMax=Math.max(...s.speeds.slice(-26),1).toFixed(0);
+    title='PENTE ≤'+pMax+'% · VITESSE ≤'+vMax+' KM/H'; right=Math.round(s.incT)+' % · '+s.speed.toFixed(1)+' km/h'; prog=Math.min(100,s.incT/incMax*100)+'%'; }
   else {
     // à l'arrêt, rien lancé : pas de graphe, juste un accès aux séances
     return '<button onclick="go(\'sessions\')" style="margin:6px 18px 0;background:#191b18;border:1px solid #26291f;border-radius:20px;padding:15px;display:flex;align-items:center;justify-content:space-between;gap:10px;width:calc(100% - 36px)">'+
@@ -344,12 +350,9 @@ function graphCard(){ const s=st, play=s.play; let bars,title,right,prog='0%';
       '<span style="font:600 22px Barlow;color:#CBF24E">→</span></button>';
   }
   const overlay = (!play && s.speeds.length>=2) ? speedLine(s.speeds) : '';
-  const isLive = !play && s.grades.length>=2;
-  const scale = isLive ? '<div style="position:absolute;top:2px;left:4px;font:600 9px Barlow;color:#6d7264">'+Math.max(...s.grades.slice(-26),incMax*0.5).toFixed(0)+'% ▬</div>'+
-    '<div style="position:absolute;top:2px;right:4px;font:600 9px Barlow;color:#8f978a">— '+Math.max(...s.speeds.slice(-26),spdMax*0.6,1).toFixed(0)+' km/h</div>' : '';
   return '<div style="margin:6px 18px 0;background:#191b18;border:1px solid #26291f;border-radius:20px;padding:13px 14px 11px">'+
     '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px"><span style="font:600 11.5px Barlow;letter-spacing:.12em;color:#8A8F80">'+title+'</span><span style="font:600 12.5px Barlow;color:#C3C8B8">'+right+'</span></div>'+
-    '<div style="position:relative;height:74px"><div style="display:flex;align-items:flex-end;gap:2px;height:74px">'+barsHtml(bars)+'</div>'+overlay+scale+'</div>'+
+    '<div style="position:relative;height:74px"><div style="display:flex;align-items:flex-end;gap:2px;height:74px">'+barsHtml(bars)+'</div>'+overlay+'</div>'+
     '<div style="height:3px;background:#23261e;border-radius:2px;margin-top:9px;display:flex"><div style="background:#CBF24E;border-radius:2px;width:'+prog+'"></div></div></div>'; }
 function speedLine(speeds){ const N=26, arr=speeds.slice(-N); const max=Math.max(...arr, spdMax*0.6, 1);
   const pad=N-arr.length, pts=[];
@@ -370,7 +373,7 @@ function viewDrive(){ const s=st, running=s.speed>0;
   let h='<div style="flex:1;display:flex;flex-direction:column">'+graphCard()+
     '<div style="text-align:center;padding:18px 20px 0"><div style="font:600 12px Barlow;letter-spacing:.18em;color:#8A8F80">VITESSE RÉELLE</div>'+
     '<div style="display:flex;align-items:flex-start;justify-content:center;gap:8px;margin-top:2px"><span style="font:700 132px \'Barlow Condensed\';line-height:.82;font-variant-numeric:tabular-nums">'+s.speed.toFixed(1)+'</span><span style="font:600 18px Barlow;color:#8A8F80;margin-top:14px">km/h</span></div>'+
-    '<div style="font:600 12.5px Barlow;color:#8A8F80;letter-spacing:.03em;margin-top:2px">'+paces(s.speed)+'</div></div>'+
+    '<div style="font:600 12.5px Barlow;color:#8A8F80;letter-spacing:.03em;margin-top:2px">'+paces(s.speed,s.dist,s.dplus)+'</div></div>'+
     statBar(31)+'<div style="flex:1;min-height:14px"></div>';
   if(showFinish) h+='<button onclick="finishRun()" style="margin:0 18px 10px;background:transparent;border:1px solid #3a3f33;border-radius:16px;padding:13px;font:600 14px Barlow;color:#C3C8B8">Terminer et enregistrer · '+(s.dist/1000).toFixed(2)+' km</button>';
   h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 18px 12px">'+
