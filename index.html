@@ -27,7 +27,7 @@ const DIM='#23261e', PAST='#4c5142', ACC='#CBF24E';
 const STEP=0.1;
 
 let st={ view:'drive', connected:false, hrOn:false, speed:0, incReal:0, dist:0, dplus:0, elapsed:0, hr:0,
-  spdT:9.5, incT:4, grades:[], speeds:[], sessions:[], history:[], draft:null, buildErr:'', msg:'', msgColor:'#8A8F80',
+  spdT:9.5, incT:4, grades:[], speeds:[], sessions:[], history:[], strava:null, pubId:null, draft:null, buildErr:'', msg:'', msgColor:'#8A8F80',
   play:null, sheet:false };
 let spdMin=1, spdMax=18, incMin=0, incMax=15;
 let device=null, controlChar=null, hrDevice=null, wakeLock=null;
@@ -184,6 +184,33 @@ function dl(blob,name){ const a=document.createElement('a'); a.href=URL.createOb
 function fname(ext){ const d=new Date(), p=n=>String(n).padStart(2,'0'); return 'threadmill-'+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'-'+p(d.getHours())+p(d.getMinutes())+'.'+ext; }
 function histFit(id){ const h=st.history.find(x=>x.id===id); if(!h) return; const b=buildFit(h.samples,h.route); if(b) dl(new Blob([b],{type:'application/octet-stream'}), fname('fit')); }
 function histTcx(id){ const h=st.history.find(x=>x.id===id); if(!h) return; const x=buildTcx(h.samples); if(x) dl(new Blob([x],{type:'application/vnd.garmin.tcx+xml'}), fname('tcx')); }
+const STRAVA_FN='/.netlify/functions/strava';
+function loadStrava(){ try{ return JSON.parse(localStorage.getItem('tm_strava')||'null'); }catch(e){ return null; } }
+function saveStrava(t){ try{ localStorage.setItem('tm_strava', JSON.stringify(t)); }catch(e){} st.strava=t; }
+function stravaConnect(){ const redirect=location.origin+location.pathname;
+  location.href='https://www.strava.com/oauth/authorize?client_id=277538&response_type=code&redirect_uri='+encodeURIComponent(redirect)+'&approval_prompt=auto&scope=activity:write'; }
+function stravaLogout(){ localStorage.removeItem('tm_strava'); st.strava=null; render(); }
+async function stravaExchange(code){
+  try{ const r=await fetch(STRAVA_FN,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'exchange',code})});
+    const j=await r.json();
+    if(j.access_token){ saveStrava({refresh_token:j.refresh_token, athlete:j.athlete||null}); st.msg='Strava connecté'+(j.athlete&&j.athlete.firstname?' · '+j.athlete.firstname:''); st.msgColor=ACC; }
+    else { st.msg='Strava : échec de connexion'; st.msgColor='#FF7A6B'; } }
+  catch(e){ st.msg='Strava : '+e; st.msgColor='#FF7A6B'; }
+  render();
+}
+async function stravaPublish(id){ const h=st.history.find(x=>x.id===id); if(!h) return;
+  const t=loadStrava(); if(!t){ st.sheet=true; render(); return; }
+  const bin=buildFit(h.samples,h.route); if(!bin) return;
+  const bytes=new Uint8Array(bin); let bin2=''; const C=0x8000; for(let i=0;i<bytes.length;i+=C) bin2+=String.fromCharCode.apply(null,bytes.subarray(i,i+C)); const b64=btoa(bin2);
+  st.pubId=id; render();
+  try{ const r=await fetch(STRAVA_FN,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'upload',refresh_token:t.refresh_token,fileBase64:b64,name:h.name||'Course tapis'})});
+    const j=await r.json();
+    if(j.refresh_token && j.refresh_token!==t.refresh_token){ t.refresh_token=j.refresh_token; saveStrava(t); }
+    if(r.ok && j.upload && !j.upload.error){ st.msg='Publié sur Strava ✓ (Strava traite le fichier)'; st.msgColor=ACC; }
+    else { st.msg='Strava : '+((j.upload&&j.upload.error)||j.error||'échec'); st.msgColor='#FF7A6B'; } }
+  catch(e){ st.msg='Strava : '+e; st.msgColor='#FF7A6B'; }
+  st.pubId=null; render();
+}
 function buildTcx(sm){ if(sm.length<2) return null;
   const start=sm[0].t, total=(new Date(sm[sm.length-1].t)-new Date(start))/1000, td=sm[sm.length-1].dist; let pts='';
   for(const s of sm) pts+='<Trackpoint><Time>'+s.t+'</Time><DistanceMeters>'+s.dist.toFixed(1)+'</DistanceMeters><AltitudeMeters>'+s.alt.toFixed(1)+'</AltitudeMeters>'+(s.hr>0?'<HeartRateBpm><Value>'+Math.round(s.hr)+'</Value></HeartRateBpm>':'')+'<Extensions><ns3:TPX><ns3:Speed>'+(s.spd/3.6).toFixed(2)+'</ns3:Speed></ns3:TPX></Extensions></Trackpoint>';
@@ -442,6 +469,7 @@ function viewHistory(){ const s=st;
   let h='<div style="flex:1;display:flex;flex-direction:column;padding:8px 18px 14px;gap:10px">'+
     '<div style="display:flex;align-items:baseline;justify-content:space-between"><div style="font:600 22px Barlow">Historique</div><div style="font:500 12.5px Barlow;color:#6d7264">'+count+'</div></div>';
   if(s.history.length) h+=selBar('hist');
+  if(s.msg) h+='<div style="font:500 12.5px Barlow;color:'+s.msgColor+';line-height:1.4">'+esc(s.msg)+'</div>';
   if(!s.history.length) h+='<div style="border:1px dashed #2e3227;border-radius:18px;padding:28px 20px;text-align:center;font:500 13.5px Barlow;color:#6d7264;line-height:1.5">Aucune course enregistrée.<br>Elles arrivent ici avec l\'export FIT (D+ conservé) et TCX.</div>';
   s.history.forEach(hh=>{ const dt=new Date(hh.date), p=n=>String(n).padStart(2,'0');
     const dateStr=p(dt.getDate())+'/'+p(dt.getMonth()+1)+'/'+String(dt.getFullYear()).slice(2)+' · '+p(dt.getHours())+'h'+p(dt.getMinutes());
@@ -451,11 +479,15 @@ function viewHistory(){ const s=st;
       h+='<div onclick="selToggle(\'hist\',\''+hh.id+'\')" style="cursor:pointer;background:#191b18;border:1px solid '+(onSel?ACC:'#26291f')+';border-radius:14px;padding:11px 13px;display:flex;align-items:center;gap:10px">'+
         '<div style="flex:1;min-width:0"><div style="font:600 14px Barlow">'+esc(title)+'</div><div style="font:500 11.5px Barlow;color:#8A8F80;margin-top:2px">'+meta+' · '+(hh.dist/1000).toFixed(2)+' km</div></div>'+
         '<span style="font-size:19px;color:'+(onSel?ACC:'#6d7264')+'">'+(onSel?'☑':'☐')+'</span></div>'; return; }
+    const pub = st.pubId===hh.id
+      ? '<button disabled style="width:100%;background:#23261e;border-radius:10px;padding:10px;font:600 12.5px Barlow;color:#8A8F80;margin-bottom:6px">Envoi vers Strava…</button>'
+      : '<button onclick="stravaPublish(\''+hh.id+'\')" style="width:100%;background:#fc5200;border-radius:10px;padding:10px;font:600 12.5px Barlow;color:#fff;margin-bottom:6px">Publier sur Strava</button>';
     h+='<div style="background:#191b18;border:1px solid #26291f;border-radius:14px;padding:11px 13px">'+
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">'+
       '<div style="min-width:0;flex:1"><div style="font:600 14px Barlow;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(title)+'</div><div style="font:500 11.5px Barlow;color:#8A8F80;margin-top:2px">'+meta+'</div></div>'+
       '<div style="font:600 26px \'Barlow Condensed\';line-height:1;color:#CBF24E;font-variant-numeric:tabular-nums">'+(hh.dist/1000).toFixed(2)+'</div></div>'+
-      '<div style="display:flex;gap:6px;margin-top:9px">'+
+      '<div style="margin-top:9px">'+pub+'</div>'+
+      '<div style="display:flex;gap:6px">'+
       '<button onclick="histFit(\''+hh.id+'\')" style="flex:1;background:#23261e;border-radius:10px;padding:9px;font:600 12px Barlow;color:#C3C8B8">FIT</button>'+
       '<button onclick="histTcx(\''+hh.id+'\')" style="flex:1;background:#23261e;border-radius:10px;padding:9px;font:600 12px Barlow;color:#C3C8B8">TCX</button>'+
       '<button onclick="openRename(\'hist\',\''+hh.id+'\')" style="width:42px;background:#23261e;border-radius:10px;padding:9px 0;font:600 14px Barlow;color:#C3C8B8">✎</button>'+
@@ -512,11 +544,18 @@ function viewSheet(){ const s=st, hrLive=s.hrOn&&s.hr>=0;
     '<span style="width:9px;height:9px;border-radius:99px;background:'+(hrLive?'#FF7A6B':'#4c5142')+'"></span>'+
     '<div style="flex:1;min-width:0"><div style="font:600 14.5px Barlow">Ceinture cardio</div><div style="font:500 12px Barlow;color:#8A8F80">'+(hrLive?(s.hr>0?s.hr+' bpm':'Connectée'):'Optionnelle · Bluetooth')+'</div></div>'+
     '<button onclick="pairHr()" style="background:#23261e;border-radius:11px;padding:10px 14px;font:600 13px Barlow;color:#C3C8B8">'+(hrLive?'Réappairer':'Appairer')+'</button></div>'+
+    '<div style="display:flex;align-items:center;gap:12px;background:#191b18;border:1px solid #26291f;border-radius:16px;padding:13px 14px;margin-bottom:14px">'+
+    '<span style="width:9px;height:9px;border-radius:99px;background:'+(s.strava?'#fc5200':'#4c5142')+'"></span>'+
+    '<div style="flex:1;min-width:0"><div style="font:600 14.5px Barlow">Strava</div><div style="font:500 12px Barlow;color:#8A8F80">'+(s.strava?('Connecté'+(s.strava.athlete&&s.strava.athlete.firstname?' · '+esc(s.strava.athlete.firstname):'')):'Publier tes courses automatiquement')+'</div></div>'+
+    '<button onclick="'+(s.strava?'stravaLogout()':'stravaConnect()')+'" style="background:'+(s.strava?'#23261e':'#fc5200')+';border-radius:11px;padding:10px 14px;font:600 13px Barlow;color:'+(s.strava?'#FF7A6B':'#fff')+'">'+(s.strava?'Délier':'Connecter')+'</button></div>'+
     '<div style="font:500 12px Barlow;color:#6d7264;line-height:1.5">Le démarrage de la courroie reste sur le bouton physique du tapis. L\'app pilote l\'allure et la pente, et enregistre la course.</div></div></div>'; }
 
 document.addEventListener('visibilitychange', async ()=>{ if(document.visibilityState==='visible' && st.connected){ try{ if('wakeLock' in navigator) wakeLock=await navigator.wakeLock.request('screen'); }catch(e){} } });
 document.getElementById('gpxFile').addEventListener('change', onGpx);
-st.sessions=loadLS('tm_sessions'); st.history=loadLS('tm_history');
+st.sessions=loadLS('tm_sessions'); st.history=loadLS('tm_history'); st.strava=loadStrava();
+(function(){ const params=new URLSearchParams(location.search); const code=params.get('code');
+  if(code){ history.replaceState({},'',location.pathname); st.view='history'; stravaExchange(code); }
+})();
 setInterval(tick,1000);
 render();
 loadKnown();
