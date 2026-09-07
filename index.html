@@ -201,14 +201,17 @@ function buildFit(sm,route){ if(sm.length<2) return null;
   const def=(l,g,f)=>{ u8(0x40|l); u8(0); u8(0); u16(g); u8(f.length); f.forEach(x=>{u8(x[0]);u8(x[1]);u8(x[2]);}); };
   def(0,0,[[0,1,0x00],[1,2,0x84],[2,2,0x84],[4,4,0x86],[3,4,0x8C]]);
   u8(0); u8(4); u16(255); u16(0); u32(toFit(new Date().toISOString())); u32(0);
-  def(1,20,[[253,4,0x86],[5,4,0x86],[2,2,0x84],[6,2,0x84],[3,1,0x02],[0,4,0x85],[1,4,0x85]]);
-  for(const s of sm){ let lat,lon,alt;
-    if(real){ const p=posAt(route,s.dist); lat=p.lat; lon=p.lon; alt=p.ele; } else { lat=BLAT+s.dist/111320; lon=BLON; alt=s.alt; }
-    u8(1); u32(toFit(s.t)); u32(Math.round(s.dist*100)); u16(Math.round((alt+500)*5)); u16(Math.round((s.spd/3.6)*1000)); u8(s.hr>0?Math.round(s.hr):0xFF); u32(sc(lat)); u32(sc(lon)); }
+  const recFields=[[253,4,0x86],[5,4,0x86],[2,2,0x84],[6,2,0x84],[3,1,0x02]];
+  if(real){ recFields.push([0,4,0x85],[1,4,0x85]); }
+  def(1,20,recFields);
+  for(const s of sm){
+    u8(1); u32(toFit(s.t)); u32(Math.round(s.dist*100));
+    if(real){ const p=posAt(route,s.dist); u16(Math.round((p.ele+500)*5)); u16(Math.round((s.spd/3.6)*1000)); u8(s.hr>0?Math.round(s.hr):0xFF); u32(sc(p.lat)); u32(sc(p.lon)); }
+    else { u16(Math.round((s.alt+500)*5)); u16(Math.round((s.spd/3.6)*1000)); u8(s.hr>0?Math.round(s.hr):0xFF); } }
   def(2,19,[[253,4,0x86],[2,4,0x86],[7,4,0x86],[8,4,0x86],[9,4,0x86],[21,2,0x84]]);
   u8(2); u32(t1); u32(t0); u32(totalSec*1000); u32(totalSec*1000); u32(Math.round(td*100)); u16(asc);
   def(3,18,[[253,4,0x86],[2,4,0x86],[7,4,0x86],[8,4,0x86],[9,4,0x86],[22,2,0x84],[5,1,0x00],[6,1,0x00],[26,2,0x84],[25,2,0x84]]);
-  u8(3); u32(t1); u32(t0); u32(totalSec*1000); u32(totalSec*1000); u32(Math.round(td*100)); u16(asc); u8(1); u8(real?0:58); u16(1); u16(0);
+  u8(3); u32(t1); u32(t0); u32(totalSec*1000); u32(totalSec*1000); u32(Math.round(td*100)); u16(asc); u8(1); u8(real?0:1); u16(1); u16(0);
   def(4,34,[[253,4,0x86],[0,4,0x86],[1,2,0x84],[2,1,0x00],[3,1,0x00],[4,1,0x00]]);
   u8(4); u32(t1); u32(totalSec*1000); u16(1); u8(0); u8(26); u8(1);
   const h=[14,0x20,2140&0xFF,(2140>>8)&0xFF,D.length&0xFF,(D.length>>8)&0xFF,(D.length>>16)&0xFF,(D.length>>24)&0xFF,0x2E,0x46,0x49,0x54];
@@ -250,9 +253,10 @@ async function onGpx(e){ const file=e.target.files&&e.target.files[0]; if(!file)
 function gpxBars(sess, coveredM){ const N=26, per=sess.totalDist/N, cur=Math.floor(clamp(coveredM,0,sess.totalDist-1)/per);
   let ele=0; const raw=[]; for(let i=0;i<N;i++){ const d=i*per, s=segAtDist(sess,d); ele+=s.grade/100*per; raw.push(ele); }
   const max=Math.max(1,...raw); return raw.map((v,i)=>({h:Math.max(6,Math.round(v/max*100))+'%', color:i<cur?PAST:(i===cur?ACC:DIM)})); }
-function gradeBars(grades){ const N=26, arr=grades.slice(-N), max=Math.max(4,...arr,1), out=[];
-  for(let i=0;i<N-arr.length;i++) out.push({h:'6%', color:DIM});
-  arr.forEach((g,i)=>out.push({h:Math.max(6,Math.round(g/max*100))+'%', color:i===arr.length-1?ACC:PAST})); return out; }
+function resample(arr,N){ if(!arr.length) return []; N=Math.min(N,Math.max(2,arr.length)); const out=[];
+  for(let i=0;i<N;i++){ const a=Math.floor(i*arr.length/N), b=Math.max(a+1,Math.floor((i+1)*arr.length/N)); let s=0,c=0; for(let j=a;j<b&&j<arr.length;j++){s+=arr[j];c++;} out.push(c?s/c:0); } return out; }
+function gradeBars(grades){ const rs=resample(grades,34), max=Math.max(4,...rs,1);
+  return rs.map((g,i)=>({h:Math.max(6,Math.round(g/max*100))+'%', color:i===rs.length-1?ACC:PAST})); }
 function intervalBars(segs, idx){ return segs.map((s,i)=>({flex:Math.max(1,Math.round(s.dur/10)), h:Math.max(14,Math.round(s.spd/18*100))+'%', color:i<idx?PAST:(i===idx?ACC:DIM)})); }
 function barsHtml(bars){ return bars.map(b=>'<div style="flex:'+(b.flex||1)+';min-width:2px;border-radius:1px 1px 0 0;background:'+b.color+';height:'+b.h+'"></div>').join(''); }
 
@@ -261,12 +265,11 @@ function tick(){
   if(!st.connected) return;
   const speed=st.speed;
   // course libre (pas de séance) : dès que la courroie démarre, pousse la consigne d'allure/pente
-  if(!st.play){ if(speed>0 && !freeStarted){ freeStarted=true; sendSpeed(st.spdT); sendIncline(st.incT); }
-    else if(speed>0 && Math.abs(speed-st.spdT)>0.3){ sendSpeed(st.spdT); } if(speed<=0) freeStarted=false; }
+  if(!st.play){ if(speed>0 && !freeStarted){ freeStarted=true; sendSpeed(st.spdT); sendIncline(st.incT); } if(speed<=0) freeStarted=false; }
   if(speed>0){ const m=speed/3.6; st.dist+=m; st.dplus+=(curGrade>0?m*curGrade/100:0); st.elapsed+=1;
     rec.push({t:new Date().toISOString(), dist:st.dist, spd:speed, alt:st.dplus, hr:st.hr||0});
-    st.grades.push(st.incT); if(st.grades.length>26) st.grades.shift();
-    st.speeds.push(st.speed); if(st.speeds.length>26) st.speeds.shift(); }
+    st.grades.push(st.incT);
+    st.speeds.push(st.speed); }
   playAdvance();
   if(st.view==='drive'||st.view==='play') render();
 }
@@ -342,7 +345,7 @@ function graphCard(){ const s=st, play=s.play; let bars,title,right,prog='0%';
     right=((play.session.totalDist-Math.min(s.dist,play.session.totalDist))/1000).toFixed(1)+' km'; prog=Math.min(100,s.dist/play.session.totalDist*100)+'%'; }
   else if(s.grades.length>=2){ bars=gradeBars(s.grades);
     const pMax=Math.max(...s.grades.slice(-26),1).toFixed(0), vMax=Math.max(...s.speeds.slice(-26),1).toFixed(0);
-    title='PENTE ≤'+pMax+'% · VITESSE ≤'+vMax+' KM/H'; right=Math.round(s.incT)+' % · '+s.speed.toFixed(1)+' km/h'; prog=Math.min(100,s.incT/incMax*100)+'%'; }
+    title='COURSE · PENTE ≤'+pMax+'% · VIT ≤'+vMax; right=Math.round(s.incT)+' % · '+s.speed.toFixed(1)+' km/h'; prog=Math.min(100,s.incT/incMax*100)+'%'; }
   else {
     // à l'arrêt, rien lancé : pas de graphe, juste un accès aux séances
     return '<button onclick="go(\'sessions\')" style="margin:6px 18px 0;background:#191b18;border:1px solid #26291f;border-radius:20px;padding:15px;display:flex;align-items:center;justify-content:space-between;gap:10px;width:calc(100% - 36px)">'+
@@ -354,10 +357,8 @@ function graphCard(){ const s=st, play=s.play; let bars,title,right,prog='0%';
     '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px"><span style="font:600 11.5px Barlow;letter-spacing:.12em;color:#8A8F80">'+title+'</span><span style="font:600 12.5px Barlow;color:#C3C8B8">'+right+'</span></div>'+
     '<div style="position:relative;height:74px"><div style="display:flex;align-items:flex-end;gap:2px;height:74px">'+barsHtml(bars)+'</div>'+overlay+'</div>'+
     '<div style="height:3px;background:#23261e;border-radius:2px;margin-top:9px;display:flex"><div style="background:#CBF24E;border-radius:2px;width:'+prog+'"></div></div></div>'; }
-function speedLine(speeds){ const N=26, arr=speeds.slice(-N); const max=Math.max(...arr, spdMax*0.6, 1);
-  const pad=N-arr.length, pts=[];
-  arr.forEach((v,i)=>{ const x=((pad+i)/(N-1))*100, y=74-(v/max)*70-2; pts.push(x.toFixed(1)+','+y.toFixed(1)); });
-  if(pts.length<2) return '';
+function speedLine(speeds){ const rs=resample(speeds,34); if(rs.length<2) return ''; const max=Math.max(...rs, spdMax*0.6, 1);
+  const pts=rs.map((v,i)=>{ const x=(i/(rs.length-1))*100, y=74-(v/max)*70-2; return x.toFixed(1)+','+y.toFixed(1); });
   return '<svg viewBox="0 0 100 74" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:74px;pointer-events:none"><polyline points="'+pts.join(' ')+'" fill="none" stroke="#C3C8B8" stroke-width="1.4" stroke-linejoin="round" vector-effect="non-scaling-stroke" opacity="0.9"/></svg>'; }
 
 function cmdCard(lbl,range,val,down,up){ return '<div style="background:#191b18;border:1px solid #26291f;border-radius:20px;padding:14px 12px">'+
@@ -373,7 +374,7 @@ function viewDrive(){ const s=st, running=s.speed>0;
   let h='<div style="flex:1;display:flex;flex-direction:column">'+graphCard()+
     '<div style="text-align:center;padding:18px 20px 0"><div style="font:600 12px Barlow;letter-spacing:.18em;color:#8A8F80">VITESSE RÉELLE</div>'+
     '<div style="display:flex;align-items:flex-start;justify-content:center;gap:8px;margin-top:2px"><span style="font:700 132px \'Barlow Condensed\';line-height:.82;font-variant-numeric:tabular-nums">'+s.speed.toFixed(1)+'</span><span style="font:600 18px Barlow;color:#8A8F80;margin-top:14px">km/h</span></div>'+
-    '<div style="font:600 12.5px Barlow;color:#8A8F80;letter-spacing:.03em;margin-top:2px">'+paces(s.speed,s.dist,s.dplus)+'</div></div>'+
+    '<div style="font:600 20px \'Barlow Condensed\';color:#C3C8B8;letter-spacing:.02em;margin-top:4px;font-variant-numeric:tabular-nums">'+paces(s.speed,s.dist,s.dplus)+'</div></div>'+
     statBar(31)+'<div style="flex:1;min-height:14px"></div>';
   if(showFinish) h+='<button onclick="finishRun()" style="margin:0 18px 10px;background:transparent;border:1px solid #3a3f33;border-radius:16px;padding:13px;font:600 14px Barlow;color:#C3C8B8">Terminer et enregistrer · '+(s.dist/1000).toFixed(2)+' km</button>';
   h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 18px 12px">'+
