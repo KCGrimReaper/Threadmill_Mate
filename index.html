@@ -26,7 +26,7 @@ const HR_SVC=0x180d, HR_MEAS=0x2a37, SENT=0x7fff, GPX_SEG=50;
 const DIM='#23261e', PAST='#4c5142', ACC='#CBF24E';
 const STEP=0.1;
 
-let st={ view:'drive', connected:false, hrOn:false, speed:0, dist:0, dplus:0, elapsed:0, hr:0,
+let st={ view:'drive', connected:false, hrOn:false, speed:0, incReal:0, dist:0, dplus:0, elapsed:0, hr:0,
   spdT:9.5, incT:4, grades:[], speeds:[], sessions:[], history:[], draft:null, buildErr:'', msg:'', msgColor:'#8A8F80',
   play:null, sheet:false };
 let spdMin=1, spdMax=18, incMin=0, incMax=15;
@@ -115,7 +115,7 @@ function parseData(dv){
   if(has(1)) o+=2; if(has(2)) o+=3;
   if(has(3)){ const i=dv.getInt16(o,true); o+=4; out.incline=(i===SENT)?null:i*0.1; }
   if(out.speed!=null) st.speed=out.speed;
-  if(out.incline!=null) curGrade=out.incline;
+  if(out.incline!=null){ curGrade=out.incline; st.incReal=out.incline; }
 }
 
 // ---------- réglages ----------
@@ -197,21 +197,18 @@ function buildFit(sm,route){ if(sm.length<2) return null;
   const D=[], u8=v=>D.push(v&0xFF), u16=v=>{D.push(v&0xFF);D.push((v>>8)&0xFF);}, u32=v=>{v=v>>>0;D.push(v&0xFF);D.push((v>>>8)&0xFF);D.push((v>>>16)&0xFF);D.push((v>>>24)&0xFF);};
   const EPOCH=631065600, toFit=iso=>Math.round(new Date(iso).getTime()/1000-EPOCH), SC=2147483648/180, sc=d=>Math.round(d*SC);
   const t0=toFit(sm[0].t), t1=toFit(sm[sm.length-1].t), totalSec=Math.max(1,t1-t0);
-  const td=sm[sm.length-1].dist, asc=Math.round(sm[sm.length-1].alt), real=!!(route&&route.length>1), BLAT=45.9237, BLON=6.8694;
+  const td=sm[sm.length-1].dist, asc=Math.round(sm[sm.length-1].alt), real=!!(route&&route.length>1), BLAT=45.803, BLON=3.049;
   const def=(l,g,f)=>{ u8(0x40|l); u8(0); u8(0); u16(g); u8(f.length); f.forEach(x=>{u8(x[0]);u8(x[1]);u8(x[2]);}); };
   def(0,0,[[0,1,0x00],[1,2,0x84],[2,2,0x84],[4,4,0x86],[3,4,0x8C]]);
   u8(0); u8(4); u16(255); u16(0); u32(toFit(new Date().toISOString())); u32(0);
-  const recFields=[[253,4,0x86],[5,4,0x86],[2,2,0x84],[6,2,0x84],[3,1,0x02]];
-  if(real){ recFields.push([0,4,0x85],[1,4,0x85]); }
-  def(1,20,recFields);
-  for(const s of sm){
-    u8(1); u32(toFit(s.t)); u32(Math.round(s.dist*100));
-    if(real){ const p=posAt(route,s.dist); u16(Math.round((p.ele+500)*5)); u16(Math.round((s.spd/3.6)*1000)); u8(s.hr>0?Math.round(s.hr):0xFF); u32(sc(p.lat)); u32(sc(p.lon)); }
-    else { u16(Math.round((s.alt+500)*5)); u16(Math.round((s.spd/3.6)*1000)); u8(s.hr>0?Math.round(s.hr):0xFF); } }
+  def(1,20,[[253,4,0x86],[5,4,0x86],[2,2,0x84],[6,2,0x84],[3,1,0x02],[0,4,0x85],[1,4,0x85]]);
+  for(const s of sm){ let lat,lon,alt;
+    if(real){ const p=posAt(route,s.dist); lat=p.lat; lon=p.lon; alt=p.ele; } else { lat=BLAT+s.dist/111320; lon=BLON; alt=s.alt; }
+    u8(1); u32(toFit(s.t)); u32(Math.round(s.dist*100)); u16(Math.round((alt+500)*5)); u16(Math.round((s.spd/3.6)*1000)); u8(s.hr>0?Math.round(s.hr):0xFF); u32(sc(lat)); u32(sc(lon)); }
   def(2,19,[[253,4,0x86],[2,4,0x86],[7,4,0x86],[8,4,0x86],[9,4,0x86],[21,2,0x84]]);
   u8(2); u32(t1); u32(t0); u32(totalSec*1000); u32(totalSec*1000); u32(Math.round(td*100)); u16(asc);
   def(3,18,[[253,4,0x86],[2,4,0x86],[7,4,0x86],[8,4,0x86],[9,4,0x86],[22,2,0x84],[5,1,0x00],[6,1,0x00],[26,2,0x84],[25,2,0x84]]);
-  u8(3); u32(t1); u32(t0); u32(totalSec*1000); u32(totalSec*1000); u32(Math.round(td*100)); u16(asc); u8(1); u8(real?0:1); u16(1); u16(0);
+  u8(3); u32(t1); u32(t0); u32(totalSec*1000); u32(totalSec*1000); u32(Math.round(td*100)); u16(asc); u8(1); u8(real?0:58); u16(1); u16(0);
   def(4,34,[[253,4,0x86],[0,4,0x86],[1,2,0x84],[2,1,0x00],[3,1,0x00],[4,1,0x00]]);
   u8(4); u32(t1); u32(totalSec*1000); u16(1); u8(0); u8(26); u8(1);
   const h=[14,0x20,2140&0xFF,(2140>>8)&0xFF,D.length&0xFF,(D.length>>8)&0xFF,(D.length>>16)&0xFF,(D.length>>24)&0xFF,0x2E,0x46,0x49,0x54];
@@ -268,7 +265,7 @@ function tick(){
   if(!st.play){ if(speed>0 && !freeStarted){ freeStarted=true; sendSpeed(st.spdT); sendIncline(st.incT); } if(speed<=0) freeStarted=false; }
   if(speed>0){ const m=speed/3.6; st.dist+=m; st.dplus+=(curGrade>0?m*curGrade/100:0); st.elapsed+=1;
     rec.push({t:new Date().toISOString(), dist:st.dist, spd:speed, alt:st.dplus, hr:st.hr||0});
-    st.grades.push(st.incT);
+    st.grades.push(curGrade);
     st.speeds.push(st.speed); }
   playAdvance();
   if(st.view==='drive'||st.view==='play') render();
@@ -345,7 +342,7 @@ function graphCard(){ const s=st, play=s.play; let bars,title,right,prog='0%';
     right=((play.session.totalDist-Math.min(s.dist,play.session.totalDist))/1000).toFixed(1)+' km'; prog=Math.min(100,s.dist/play.session.totalDist*100)+'%'; }
   else if(s.grades.length>=2){ bars=gradeBars(s.grades);
     const pMax=Math.max(...s.grades.slice(-26),1).toFixed(0), vMax=Math.max(...s.speeds.slice(-26),1).toFixed(0);
-    title='COURSE · PENTE ≤'+pMax+'% · VIT ≤'+vMax; right=Math.round(s.incT)+' % · '+s.speed.toFixed(1)+' km/h'; prog=Math.min(100,s.incT/incMax*100)+'%'; }
+    title='COURSE · PENTE ≤'+pMax+'% · VIT ≤'+vMax; right=Math.round(s.incReal)+' % · '+s.speed.toFixed(1)+' km/h'; prog=Math.min(100,s.incReal/incMax*100)+'%'; }
   else {
     // à l'arrêt, rien lancé : pas de graphe, juste un accès aux séances
     return '<button onclick="go(\'sessions\')" style="margin:6px 18px 0;background:#191b18;border:1px solid #26291f;border-radius:20px;padding:15px;display:flex;align-items:center;justify-content:space-between;gap:10px;width:calc(100% - 36px)">'+
@@ -379,7 +376,7 @@ function viewDrive(){ const s=st, running=s.speed>0;
   if(showFinish) h+='<button onclick="finishRun()" style="margin:0 18px 10px;background:transparent;border:1px solid #3a3f33;border-radius:16px;padding:13px;font:600 14px Barlow;color:#C3C8B8">Terminer et enregistrer · '+(s.dist/1000).toFixed(2)+' km</button>';
   h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 18px 12px">'+
     cmdCard('ALLURE',spdMin+'–'+spdMax,s.spdT.toFixed(1),'adjSpd(-'+STEP+')','adjSpd('+STEP+')')+
-    cmdCard('PENTE','0–'+incMax,String(Math.round(s.incT)),'adjInc(-1)','adjInc(1)')+'</div>'+
+    cmdCard('PENTE','0–'+incMax,String(Math.round(s.connected?s.incReal:s.incT)),'adjInc(-1)','adjInc(1)')+'</div>'+
     '<div style="padding:0 18px 14px;font:500 12px Barlow;color:#6d7264;line-height:1.45">'+hint+'</div></div>';
   return h; }
 
