@@ -220,6 +220,15 @@ function fitCRC(b){ const t=[0x0000,0xCC01,0xD801,0x1400,0xF001,0x3C00,0x2800,0x
 function posAt(route,dd){ if(dd<=route[0].d) return route[0]; const last=route[route.length-1]; if(dd>=last.d) return last;
   let lo=0,hi=route.length-1; while(hi-lo>1){ const m=(lo+hi)>>1; if(route[m].d<=dd) lo=m; else hi=m; }
   const a=route[lo],b=route[hi],sp=b.d-a.d,f=sp>0?(dd-a.d)/sp:0; return {lat:a.lat+(b.lat-a.lat)*f, lon:a.lon+(b.lon-a.lon)*f, ele:a.ele+(b.ele-a.ele)*f}; }
+// Trace virtuelle : boucle fermée (limaçon) déroulée au fil de la distance, centrée sur (blat,blon).
+function virtualPos(d, total, blat, blon){
+  total=Math.max(total,300);
+  const t=(d/total)*2*Math.PI;                 // un tour complet sur toute la distance
+  const R=(total/(2*Math.PI))/111320;          // rayon ~ pour que le périmètre ≈ distance (en degrés lat)
+  const r=R*(0.6+0.4*Math.cos(3*t));           // variation → forme de circuit, pas un cercle parfait
+  const lat=blat + r*Math.cos(t);
+  const lon=blon + (r*Math.sin(t))/Math.cos(blat*Math.PI/180);  // correction longitude
+  return {lat,lon}; }
 function buildFit(sm,route){ if(sm.length<2) return null;
   const D=[], u8=v=>D.push(v&0xFF), u16=v=>{D.push(v&0xFF);D.push((v>>8)&0xFF);}, u32=v=>{v=v>>>0;D.push(v&0xFF);D.push((v>>>8)&0xFF);D.push((v>>>16)&0xFF);D.push((v>>>24)&0xFF);};
   const EPOCH=631065600, toFit=iso=>Math.round(new Date(iso).getTime()/1000-EPOCH), SC=2147483648/180, sc=d=>Math.round(d*SC);
@@ -230,7 +239,8 @@ function buildFit(sm,route){ if(sm.length<2) return null;
   u8(0); u8(4); u16(255); u16(0); u32(toFit(new Date().toISOString())); u32(0);
   def(1,20,[[253,4,0x86],[5,4,0x86],[2,2,0x84],[6,2,0x84],[3,1,0x02],[0,4,0x85],[1,4,0x85]]);
   for(const s of sm){ let lat,lon,alt;
-    if(real){ const p=posAt(route,s.dist); lat=p.lat; lon=p.lon; alt=p.ele; } else { lat=BLAT+s.dist/111320; lon=BLON; alt=s.alt; }
+    if(real){ const p=posAt(route,s.dist); lat=p.lat; lon=p.lon; alt=p.ele; }
+    else { const q=virtualPos(s.dist, td, BLAT, BLON); lat=q.lat; lon=q.lon; alt=s.alt; }
     u8(1); u32(toFit(s.t)); u32(Math.round(s.dist*100)); u16(Math.round((alt+500)*5)); u16(Math.round((s.spd/3.6)*1000)); u8(s.hr>0?Math.round(s.hr):0xFF); u32(sc(lat)); u32(sc(lon)); }
   def(2,19,[[253,4,0x86],[2,4,0x86],[7,4,0x86],[8,4,0x86],[9,4,0x86],[21,2,0x84]]);
   u8(2); u32(t1); u32(t0); u32(totalSec*1000); u32(totalSec*1000); u32(Math.round(td*100)); u16(asc);
