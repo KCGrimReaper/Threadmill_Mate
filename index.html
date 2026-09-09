@@ -27,7 +27,7 @@ const DIM='#23261e', PAST='#4c5142', ACC='#CBF24E';
 const STEP=0.1;
 
 let st={ view:'drive', connected:false, hrOn:false, speed:0, incReal:0, dist:0, dplus:0, elapsed:0, hr:0,
-  spdT:9.5, incT:4, grades:[], speeds:[], sessions:[], history:[], strava:null, pubId:null, draft:null, buildErr:'', msg:'', msgColor:'#8A8F80',
+  spdT:9.5, incT:4, grades:[], speeds:[], sessions:[], history:[], strava:null, pubId:null, shapePick:null, draft:null, buildErr:'', msg:'', msgColor:'#8A8F80',
   play:null, sheet:false };
 let spdMin=1, spdMax=18, incMin=0, incMax=15;
 let device=null, controlChar=null, hrDevice=null, wakeLock=null;
@@ -182,7 +182,10 @@ function doRename(){ if(!renaming) return; const v=(document.getElementById('ren
   renaming=null; render(); }
 function dl(blob,name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000); }
 function fname(ext){ const d=new Date(), p=n=>String(n).padStart(2,'0'); return 'threadmill-'+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'-'+p(d.getHours())+p(d.getMinutes())+'.'+ext; }
-function histFit(id){ const h=st.history.find(x=>x.id===id); if(!h) return; const b=buildFit(h.samples,h.route); if(b) dl(new Blob([b],{type:'application/octet-stream'}), fname('fit')); }
+function histFit(id){ const h=st.history.find(x=>x.id===id); if(!h) return;
+  if(h.route){ const b=buildFit(h.samples,h.route); if(b) dl(new Blob([b],{type:'application/octet-stream'}), fname('fit')); }
+  else { st.shapePick={id,action:'fit'}; render(); } }
+function doFit(id,shape){ const h=st.history.find(x=>x.id===id); if(!h) return; const b=buildFit(h.samples,h.route,shape); if(b) dl(new Blob([b],{type:'application/octet-stream'}), fname('fit')); }
 function histTcx(id){ const h=st.history.find(x=>x.id===id); if(!h) return; const x=buildTcx(h.samples); if(x) dl(new Blob([x],{type:'application/vnd.garmin.tcx+xml'}), fname('tcx')); }
 const STRAVA_FN='/.netlify/functions/strava';
 function loadStrava(){ try{ return JSON.parse(localStorage.getItem('tm_strava')||'null'); }catch(e){ return null; } }
@@ -199,8 +202,11 @@ async function stravaExchange(code){
   render();
 }
 async function stravaPublish(id){ const h=st.history.find(x=>x.id===id); if(!h) return;
+  if(!loadStrava()){ st.sheet=true; render(); return; }
+  if(h.route){ doStravaUpload(id,null); } else { st.shapePick={id,action:'strava'}; render(); } }
+async function doStravaUpload(id,shape){ const h=st.history.find(x=>x.id===id); if(!h) return;
   const t=loadStrava(); if(!t){ st.sheet=true; render(); return; }
-  const bin=buildFit(h.samples,h.route); if(!bin) return;
+  const bin=buildFit(h.samples,h.route,shape); if(!bin) return;
   const bytes=new Uint8Array(bin); let bin2=''; const C=0x8000; for(let i=0;i<bytes.length;i+=C) bin2+=String.fromCharCode.apply(null,bytes.subarray(i,i+C)); const b64=btoa(bin2);
   st.pubId=id; render();
   try{ const r=await fetch(STRAVA_FN,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'upload',refresh_token:t.refresh_token,fileBase64:b64,name:h.name||'Course tapis'})});
@@ -209,8 +215,8 @@ async function stravaPublish(id){ const h=st.history.find(x=>x.id===id); if(!h) 
     if(r.ok && j.upload && !j.upload.error){ st.msg='Publié sur Strava ✓ (Strava traite le fichier)'; st.msgColor=ACC; }
     else { st.msg='Strava : '+((j.upload&&j.upload.error)||j.error||'échec'); st.msgColor='#FF7A6B'; } }
   catch(e){ st.msg='Strava : '+e; st.msgColor='#FF7A6B'; }
-  st.pubId=null; render();
-}
+  st.pubId=null; render(); }
+function chooseShape(shape){ const pk=st.shapePick; st.shapePick=null; if(!pk) return; if(pk.action==='fit') doFit(pk.id,shape); else doStravaUpload(pk.id,shape); }
 function buildTcx(sm){ if(sm.length<2) return null;
   const start=sm[0].t, total=(new Date(sm[sm.length-1].t)-new Date(start))/1000, td=sm[sm.length-1].dist; let pts='';
   for(const s of sm) pts+='<Trackpoint><Time>'+s.t+'</Time><DistanceMeters>'+s.dist.toFixed(1)+'</DistanceMeters><AltitudeMeters>'+s.alt.toFixed(1)+'</AltitudeMeters>'+(s.hr>0?'<HeartRateBpm><Value>'+Math.round(s.hr)+'</Value></HeartRateBpm>':'')+'<Extensions><ns3:TPX><ns3:Speed>'+(s.spd/3.6).toFixed(2)+'</ns3:Speed></ns3:TPX></Extensions></Trackpoint>';
@@ -221,15 +227,28 @@ function posAt(route,dd){ if(dd<=route[0].d) return route[0]; const last=route[r
   let lo=0,hi=route.length-1; while(hi-lo>1){ const m=(lo+hi)>>1; if(route[m].d<=dd) lo=m; else hi=m; }
   const a=route[lo],b=route[hi],sp=b.d-a.d,f=sp>0?(dd-a.d)/sp:0; return {lat:a.lat+(b.lat-a.lat)*f, lon:a.lon+(b.lon-a.lon)*f, ele:a.ele+(b.ele-a.ele)*f}; }
 // Trace virtuelle : boucle fermée (limaçon) déroulée au fil de la distance, centrée sur (blat,blon).
-function virtualPos(d, total, blat, blon){
+function boltXY(u){ const P=[[0.25,1],[-0.15,0.12],[0.22,0.12],[-0.28,-1],[0.1,-0.08],[-0.22,-0.08],[0.25,1]];
+  let L=0; const seg=[]; for(let i=0;i<P.length-1;i++){ const dx=P[i+1][0]-P[i][0], dy=P[i+1][1]-P[i][1], l=Math.hypot(dx,dy); seg.push(l); L+=l; }
+  let target=u*L, i=0; while(i<seg.length-1 && target>seg[i]){ target-=seg[i]; i++; } const f=seg[i]?target/seg[i]:0;
+  return {x:P[i][0]+(P[i+1][0]-P[i][0])*f, y:P[i][1]+(P[i+1][1]-P[i][1])*f}; }
+function shapeXY(shape,u){ const T=2*Math.PI*u;
+  switch(shape){
+    case 'coeur': return {x:Math.pow(Math.sin(T),3), y:(13*Math.cos(T)-5*Math.cos(2*T)-2*Math.cos(3*T)-Math.cos(4*T))/16};
+    case 'etoile': { const r=0.55+0.45*Math.cos(5*T); return {x:r*Math.cos(T), y:r*Math.sin(T)}; }
+    case 'cercle': return {x:Math.cos(T), y:Math.sin(T)};
+    case 'huit': return {x:Math.cos(T), y:Math.sin(T)*Math.cos(T)};
+    case 'eclair': return boltXY(u);
+    default: { const r=0.6+0.4*Math.cos(3*T); return {x:r*Math.cos(T), y:r*Math.sin(T)}; } }
+}
+function virtualPos(d, total, blat, blon, shape){
   total=Math.max(total,300);
-  const t=(d/total)*2*Math.PI;                 // un tour complet sur toute la distance
-  const R=(total/(2*Math.PI))/111320;          // rayon ~ pour que le périmètre ≈ distance (en degrés lat)
-  const r=R*(0.6+0.4*Math.cos(3*t));           // variation → forme de circuit, pas un cercle parfait
-  const lat=blat + r*Math.cos(t);
-  const lon=blon + (r*Math.sin(t))/Math.cos(blat*Math.PI/180);  // correction longitude
+  const u=(d/total)%1;
+  const p=shapeXY(shape||'boucle', u);
+  const R=(total/(2*Math.PI))/111320;   // taille ~ périmètre = distance
+  const lat=blat + p.y*R;
+  const lon=blon + (p.x*R)/Math.cos(blat*Math.PI/180);
   return {lat,lon}; }
-function buildFit(sm,route){ if(sm.length<2) return null;
+function buildFit(sm,route,shape){ if(sm.length<2) return null;
   const D=[], u8=v=>D.push(v&0xFF), u16=v=>{D.push(v&0xFF);D.push((v>>8)&0xFF);}, u32=v=>{v=v>>>0;D.push(v&0xFF);D.push((v>>>8)&0xFF);D.push((v>>>16)&0xFF);D.push((v>>>24)&0xFF);};
   const EPOCH=631065600, toFit=iso=>Math.round(new Date(iso).getTime()/1000-EPOCH), SC=2147483648/180, sc=d=>Math.round(d*SC);
   const t0=toFit(sm[0].t), t1=toFit(sm[sm.length-1].t), totalSec=Math.max(1,t1-t0);
@@ -240,7 +259,7 @@ function buildFit(sm,route){ if(sm.length<2) return null;
   def(1,20,[[253,4,0x86],[5,4,0x86],[2,2,0x84],[6,2,0x84],[3,1,0x02],[0,4,0x85],[1,4,0x85]]);
   for(const s of sm){ let lat,lon,alt;
     if(real){ const p=posAt(route,s.dist); lat=p.lat; lon=p.lon; alt=p.ele; }
-    else { const q=virtualPos(s.dist, td, BLAT, BLON); lat=q.lat; lon=q.lon; alt=s.alt; }
+    else { const q=virtualPos(s.dist, td, BLAT, BLON, shape); lat=q.lat; lon=q.lon; alt=s.alt; }
     u8(1); u32(toFit(s.t)); u32(Math.round(s.dist*100)); u16(Math.round((alt+500)*5)); u16(Math.round((s.spd/3.6)*1000)); u8(s.hr>0?Math.round(s.hr):0xFF); u32(sc(lat)); u32(sc(lon)); }
   def(2,19,[[253,4,0x86],[2,4,0x86],[7,4,0x86],[8,4,0x86],[9,4,0x86],[21,2,0x84]]);
   u8(2); u32(t1); u32(t0); u32(totalSec*1000); u32(totalSec*1000); u32(Math.round(td*100)); u16(asc);
@@ -357,8 +376,17 @@ function render(){
   }
   if(s.sheet) html+=viewSheet();
   if(renaming) html+=viewRename();
+  if(st.shapePick) html+=viewShape();
   document.getElementById('app').innerHTML=html;
 }
+function viewShape(){ const forms=[['boucle','Boucle'],['coeur','Cœur ♥'],['etoile','Étoile ★'],['cercle','Cercle'],['huit','Huit ∞'],['eclair','Éclair']];
+  return '<div style="position:absolute;inset:0;background:rgba(7,8,7,.72);display:flex;align-items:flex-end;z-index:30" onclick="if(event.target===this){st.shapePick=null;render()}">'+
+    '<div style="width:100%;background:#161816;border-top:1px solid #26291f;border-radius:26px 26px 0 0;padding:18px 18px 24px">'+
+    '<div style="font:600 19px Barlow;margin-bottom:4px">Forme du tracé</div>'+
+    '<div style="font:500 12px Barlow;color:#8A8F80;margin-bottom:14px;line-height:1.4">Décoratif : dessine cette forme sur la carte Strava (pour les courses sans GPX).</div>'+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'+
+    forms.map(f=>'<button onclick="chooseShape(\''+f[0]+'\')" style="background:#23261e;border:1px solid #2e3227;border-radius:12px;padding:14px;font:600 14px Barlow;color:#F2F4EE">'+f[1]+'</button>').join('')+'</div>'+
+    '<button onclick="st.shapePick=null;render()" style="width:100%;background:transparent;border:1px solid #3a3f33;border-radius:12px;padding:13px;font:600 14px Barlow;color:#8A8F80;margin-top:10px">Annuler</button></div></div>'; }
 function viewRename(){ const cur = renaming.kind==='sess' ? (st.sessions.find(x=>x.id===renaming.id)||{}).name : (st.history.find(x=>x.id===renaming.id)||{}).name;
   return '<div style="position:absolute;inset:0;background:rgba(7,8,7,.72);display:flex;align-items:flex-end;z-index:30" onclick="if(event.target===this)closeRename()">'+
     '<div style="width:100%;background:#161816;border-top:1px solid #26291f;border-radius:26px 26px 0 0;padding:18px 18px 24px">'+
