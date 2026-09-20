@@ -194,7 +194,6 @@ function histFit(id){ const h=st.history.find(x=>x.id===id); if(!h) return;
   if(h.route){ const b=buildFit(h.samples,h.route); if(b) dl(new Blob([b],{type:'application/octet-stream'}), fname('fit')); }
   else { st.shapePick={id,action:'fit'}; render(); } }
 function doFit(id,shape){ const h=st.history.find(x=>x.id===id); if(!h) return; const b=buildFit(h.samples,h.route,shape); if(b) dl(new Blob([b],{type:'application/octet-stream'}), fname('fit')); }
-function histTcx(id){ const h=st.history.find(x=>x.id===id); if(!h) return; const x=buildTcx(h.samples); if(x) dl(new Blob([x],{type:'application/vnd.garmin.tcx+xml'}), fname('tcx')); }
 const STRAVA_FN='/.netlify/functions/strava';
 function loadStrava(){ try{ return JSON.parse(localStorage.getItem('tm_strava')||'null'); }catch(e){ return null; } }
 function saveStrava(t){ try{ localStorage.setItem('tm_strava', JSON.stringify(t)); }catch(e){} st.strava=t; }
@@ -225,10 +224,6 @@ async function doStravaUpload(id,shape){ const h=st.history.find(x=>x.id===id); 
   catch(e){ st.msg='Strava : '+e; st.msgColor='#FF7A6B'; }
   st.pubId=null; render(); }
 function chooseShape(shape){ const pk=st.shapePick; st.shapePick=null; if(!pk) return; if(pk.action==='fit') doFit(pk.id,shape); else doStravaUpload(pk.id,shape); }
-function buildTcx(sm){ if(sm.length<2) return null;
-  const start=sm[0].t, total=(new Date(sm[sm.length-1].t)-new Date(start))/1000, td=sm[sm.length-1].dist; let pts='';
-  for(const s of sm) pts+='<Trackpoint><Time>'+s.t+'</Time><DistanceMeters>'+s.dist.toFixed(1)+'</DistanceMeters><AltitudeMeters>'+s.alt.toFixed(1)+'</AltitudeMeters>'+(s.hr>0?'<HeartRateBpm><Value>'+Math.round(s.hr)+'</Value></HeartRateBpm>':'')+'<Extensions><ns3:TPX><ns3:Speed>'+(s.spd/3.6).toFixed(2)+'</ns3:Speed></ns3:TPX></Extensions></Trackpoint>';
-  return '<?xml version="1.0" encoding="UTF-8"?>\n<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2" xmlns:ns3="http://www.garmin.com/xmlschemas/ActivityExtension/v2"><Activities><Activity Sport="Running"><Id>'+start+'</Id><Lap StartTime="'+start+'"><TotalTimeSeconds>'+total.toFixed(0)+'</TotalTimeSeconds><DistanceMeters>'+td.toFixed(1)+'</DistanceMeters><Calories>0</Calories><Intensity>Active</Intensity><TriggerMethod>Manual</TriggerMethod><Track>'+pts+'</Track></Lap></Activity></Activities></TrainingCenterDatabase>'; }
 function fitCRC(b){ const t=[0x0000,0xCC01,0xD801,0x1400,0xF001,0x3C00,0x2800,0xE401,0xA001,0x6C00,0x7800,0xB401,0x5000,0x9C01,0x8801,0x4400]; let crc=0;
   for(let i=0;i<b.length;i++){ const x=b[i]; let tmp=t[crc&0xF]; crc=(crc>>4)&0x0FFF; crc=crc^tmp^t[x&0xF]; tmp=t[crc&0xF]; crc=(crc>>4)&0x0FFF; crc=crc^tmp^t[(x>>4)&0xF]; } return crc&0xFFFF; }
 function posAt(route,dd){ if(dd<=route[0].d) return route[0]; const last=route[route.length-1]; if(dd>=last.d) return last;
@@ -541,7 +536,6 @@ function viewHistory(){ const s=st;
       '<div style="margin-top:9px">'+pub+'</div>'+
       '<div style="display:flex;gap:6px">'+
       '<button onclick="histFit(\''+hh.id+'\')" style="flex:1;background:#23261e;border-radius:10px;padding:9px;font:600 12px Barlow;color:#C3C8B8">FIT</button>'+
-      '<button onclick="histTcx(\''+hh.id+'\')" style="flex:1;background:#23261e;border-radius:10px;padding:9px;font:600 12px Barlow;color:#C3C8B8">TCX</button>'+
       '<button onclick="openRename(\'hist\',\''+hh.id+'\')" style="width:42px;background:#23261e;border-radius:10px;padding:9px 0;font:600 14px Barlow;color:#C3C8B8">✎</button>'+
       '<button onclick="delHist(\''+hh.id+'\')" style="width:52px;background:#23261e;border-radius:10px;padding:9px 0;font:600 12px Barlow;color:#FF7A6B">Suppr</button></div></div>';
   });
