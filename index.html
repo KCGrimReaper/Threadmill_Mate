@@ -26,14 +26,14 @@ const HR_SVC=0x180d, HR_MEAS=0x2a37, SENT=0x7fff, GPX_SEG=50;
 const DIM='#23261e', PAST='#4c5142', ACC='#CBF24E';
 const STEP=0.1;
 
-let st={ view:'drive', connected:false, hrOn:false, speed:0, incReal:0, dist:0, dplus:0, elapsed:0, hr:0,
+let st={ view:'drive', connected:false, hrOn:false, speed:0, incReal:0, mainUnit:'kmh', dist:0, dplus:0, elapsed:0, hr:0,
   spdT:9.5, incT:4, grades:[], speeds:[], sessions:[], history:[], strava:null, pubId:null, shapePick:null, draft:null, buildErr:'', msg:'', msgColor:'#8A8F80',
   play:null, sheet:false };
 let spdMin=1, spdMax=18, incMin=0, incMax=15;
 let device=null, controlChar=null, hrDevice=null, wakeLock=null;
 let rec=[], activeRoute=null, gattQueue=Promise.resolve(), lastTs=0, curGrade=0;
 let selMode={hist:false,sess:false}, selSet={hist:new Set(),sess:new Set()}, renaming=null;
-let knownTm=null, knownHr=null, freeStarted=false;
+let knownTm=null, knownHr=null, freeStarted=false, freeReaching=false;
 
 // ---------- utils ----------
 function loadLS(k){ try{ return JSON.parse(localStorage.getItem(k)||'[]'); }catch(e){ return []; } }
@@ -69,13 +69,21 @@ async function connect(){
   catch(err){ st.msg='Connexion : '+err.message; st.msgColor='#FF7A6B'; render(); }
 }
 function connectSmart(){ if(knownTm){ setupTreadmill(knownTm).catch(()=>connect()); } else connect(); }
-function paces(sp, dist, dplus){ const f=secKm=>{ const s=Math.round(secKm); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); };
-  if(!sp||sp<=0) return '— /km · — /kme';
-  const perKm=3600/sp;
-  // km-effort = km + D+/100 ; allure kme = allure km ajustée du facteur distance/distance-effort
-  let kme='—';
-  if(dist>50){ const km=dist/1000, effort=km + (dplus||0)/100; if(effort>0) kme=f(perKm*(km/effort)); }
-  return f(perKm)+' /km · '+kme+' /kme'; }
+function fmtPace(minPerU){ if(!isFinite(minPerU)||minPerU<=0) return '—'; const s=Math.round(minPerU*60); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); }
+// vitesse km-effort instantanée : v*(1 + pente%/10). Ex : 10 km/h à 10% = 20 km-effort/h.
+function metrics(sp, grade){ const g=grade>0?grade:0; const vkt= sp>0 ? sp*(1+g/10) : 0;
+  return { kmh:sp, minkm: sp>0?60/sp:0, vkt, minkme: vkt>0?60/vkt:0 }; }
+function heroValue(){ const m=metrics(st.speed, st.incReal), u=st.mainUnit;
+  if(u==='minkm') return {big:fmtPace(m.minkm), unit:'/km', label:'ALLURE'};
+  if(u==='vkt') return {big:m.vkt.toFixed(1), unit:'km-e/h', label:'VITESSE EFFORT'};
+  return {big:m.kmh.toFixed(1), unit:'km/h', label:'VITESSE RÉELLE'}; }
+function subMetrics(){ const m=metrics(st.speed, st.incReal), u=st.mainUnit, p=[];
+  if(u!=='kmh') p.push(m.kmh.toFixed(1)+' km/h');
+  if(u!=='minkm') p.push(fmtPace(m.minkm)+' /km');
+  if(u!=='vkt') p.push(m.vkt.toFixed(1)+' km-e/h');
+  return p.join('  ·  '); }
+function cycleUnit(){ const o=['kmh','minkm','vkt'], i=o.indexOf(st.mainUnit); st.mainUnit=o[(i+1)%3]; try{localStorage.setItem('tm_unit',st.mainUnit);}catch(e){} render(); }
+function paces(sp, dist, dplus){ return subMetrics(); }
 async function reconnectTm(){ if(knownTm){ try{ await setupTreadmill(knownTm); }catch(e){} } }
 function disconnect(){ if(device&&device.gatt.connected) device.gatt.disconnect(); st.connected=false; render(); }
 async function readRanges(svc){
@@ -119,7 +127,7 @@ function parseData(dv){
 }
 
 // ---------- réglages ----------
-function adjSpd(d){ const v=clamp(+(st.spdT+d).toFixed(1),spdMin,spdMax); st.spdT=v; sendSpeed(v); render(); }
+function adjSpd(d){ const v=clamp(+(st.spdT+d).toFixed(1),spdMin,spdMax); st.spdT=v; sendSpeed(v); if(!st.play) freeReaching=true; render(); }
 function adjInc(d){ const v=clamp(+(st.incT+d).toFixed(1),incMin,incMax); st.incT=v; sendIncline(v); render(); }
 
 // ---------- séances ----------
@@ -318,7 +326,13 @@ function tick(){
   if(!st.connected) return;
   const speed=st.speed;
   // course libre (pas de séance) : dès que la courroie démarre, pousse la consigne d'allure/pente
-  if(!st.play){ if(speed>0 && !freeStarted){ freeStarted=true; sendSpeed(st.spdT); sendIncline(st.incT); } if(speed<=0) freeStarted=false; }
+  if(!st.play){
+    if(speed>0){
+      if(!freeStarted){ freeStarted=true; freeReaching=true; }
+      if(freeReaching){ sendSpeed(st.spdT); sendIncline(st.incT); if(Math.abs(speed-st.spdT)<0.3) freeReaching=false; }
+      else { st.spdT=+speed.toFixed(1); }   // cible atteinte : l'app suit la vitesse réelle (bouton physique)
+    } else { freeStarted=false; freeReaching=false; }
+  }
   if(speed>0){ const m=speed/3.6; st.dist+=m; st.dplus+=(curGrade>0?m*curGrade/100:0); st.elapsed+=1;
     rec.push({t:new Date().toISOString(), dist:st.dist, spd:speed, alt:st.dplus, hr:st.hr||0});
     st.grades.push(curGrade);
@@ -434,9 +448,9 @@ function viewDrive(){ const s=st, running=s.speed>0;
   const showFinish=s.dist>50 && !s.play;
   const hint=running?'Course en cours · l\'app tient l\'allure et la pente, la courroie reste sous ton bouton physique.':'Lance la courroie au bouton du tapis. L\'app pilote ensuite l\'allure et la pente.';
   let h='<div style="flex:1;display:flex;flex-direction:column">'+graphCard()+
-    '<div style="text-align:center;padding:18px 20px 0"><div style="font:600 12px Barlow;letter-spacing:.18em;color:#8A8F80">VITESSE RÉELLE</div>'+
-    '<div style="display:flex;align-items:flex-start;justify-content:center;gap:8px;margin-top:2px"><span style="font:700 132px \'Barlow Condensed\';line-height:.82;font-variant-numeric:tabular-nums">'+s.speed.toFixed(1)+'</span><span style="font:600 18px Barlow;color:#8A8F80;margin-top:14px">km/h</span></div>'+
-    '<div style="font:600 20px \'Barlow Condensed\';color:#C3C8B8;letter-spacing:.02em;margin-top:4px;font-variant-numeric:tabular-nums">'+paces(s.speed,s.dist,s.dplus)+'</div></div>'+
+    '<div onclick="cycleUnit()" style="text-align:center;padding:18px 20px 0;cursor:pointer"><div style="font:600 12px Barlow;letter-spacing:.18em;color:#8A8F80">'+heroValue().label+' <span style="color:#4c5142">⇅</span></div>'+
+    '<div style="display:flex;align-items:flex-start;justify-content:center;gap:8px;margin-top:2px"><span style="font:700 132px \'Barlow Condensed\';line-height:.82;font-variant-numeric:tabular-nums">'+heroValue().big+'</span><span style="font:600 18px Barlow;color:#8A8F80;margin-top:14px">'+heroValue().unit+'</span></div>'+
+    '<div style="font:600 15px \'Barlow Condensed\';color:#8A8F80;letter-spacing:.02em;margin-top:4px;font-variant-numeric:tabular-nums">'+subMetrics()+'</div></div>'+
     statBar(31)+'<div style="flex:1;min-height:14px"></div>';
   if(showFinish) h+='<button onclick="finishRun()" style="margin:0 18px 10px;background:transparent;border:1px solid #3a3f33;border-radius:16px;padding:13px;font:600 14px Barlow;color:#C3C8B8">Terminer et enregistrer · '+(s.dist/1000).toFixed(2)+' km</button>';
   h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 18px 12px">'+
@@ -591,6 +605,7 @@ function viewSheet(){ const s=st, hrLive=s.hrOn&&s.hr>=0;
 document.addEventListener('visibilitychange', async ()=>{ if(document.visibilityState==='visible' && st.connected){ try{ if('wakeLock' in navigator) wakeLock=await navigator.wakeLock.request('screen'); }catch(e){} } });
 document.getElementById('gpxFile').addEventListener('change', onGpx);
 st.sessions=loadLS('tm_sessions'); st.history=loadLS('tm_history'); st.strava=loadStrava();
+try{ const u=localStorage.getItem('tm_unit'); if(u) st.mainUnit=u; }catch(e){}
 (function(){ const params=new URLSearchParams(location.search); const code=params.get('code');
   if(code){ history.replaceState({},'',location.pathname); st.view='history'; stravaExchange(code); }
 })();
