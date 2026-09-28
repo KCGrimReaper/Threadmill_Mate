@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>Redirection vers Trail Planner Pro…</title>
+</head>
+<body style="font-family:system-ui,sans-serif;text-align:center;padding:40px;color:#555;">
+<p id="msg">Redirection vers Trail Planner Pro…</p>
+<script>
+// Relais OAuth Strava pour Trail Planner Pro (TPP).
+// L'app Strava de ce site n'accepte qu'un domaine de retour : Strava renvoie
+// donc ici, et cette page transmet aussitôt le code à TPP. Le paramètre
+// "state" indique l'environnement TPP d'origine ; seules ces cibles sont
+// autorisées, pour ne jamais servir de redirection ouverte.
+(function() {
+    var TARGETS = {
+        prod:    'https://trailplannerpro.com/api/strava/callback',
+        staging: 'https://staging.trailplannerpro.com/api/strava/callback'
+    };
+    var params = new URLSearchParams(location.search);
+    var env = (params.get('state') || '').split(':')[0];
+    var target = TARGETS[env];
+    if (!target) {
+        document.getElementById('msg').textContent = 'Lien de connexion Strava invalide.';
+        return;
+    }
+    location.replace(target + location.search);
+})();
+</script>
+</body>
+</html>
