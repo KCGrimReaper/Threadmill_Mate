@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>Redirection vers Renfo Ultra-Trail…</title>
+</head>
+<body style="font-family:system-ui,sans-serif;text-align:center;padding:40px;color:#555;">
+<p id="msg">Redirection vers Renfo Ultra-Trail…</p>
+<script>
+// Relais OAuth Strava pour Renfo Ultra-Trail.
+// L'app Strava n'accepte qu'un domaine de retour (celui de ce site) : Strava
+// renvoie donc ici, et cette page transmet aussitôt le code à Renfo.
+// Le paramètre "state" vaut "renfo:<url-encodée-de-retour>".
+// Seules les cibles renfo-ultra-trail.netlify.app sont autorisées,
+// pour ne jamais servir de redirection ouverte.
+(function () {
+    var params = new URLSearchParams(location.search);
+    var state = params.get('state') || '';
+    var parts = state.split(':');
+    var env = parts[0];
+    if (env !== 'renfo') {
+        document.getElementById('msg').textContent = 'Lien de connexion Strava invalide.';
+        return;
+    }
+    var back = '';
+    try { back = decodeURIComponent(parts.slice(1).join(':')); } catch (e) {}
+    // Sécurité : n'autorise que le domaine Renfo
+    if (!/^https:\/\/renfo-ultra-trail\.netlify\.app\//.test(back)) {
+        document.getElementById('msg').textContent = 'Domaine de retour non autorisé.';
+        return;
+    }
+    // Réexpédie code + scope vers Renfo
+    var code = params.get('code') || '';
+    var scope = params.get('scope') || '';
+    var sep = back.indexOf('?') === -1 ? '?' : '&';
+    location.replace(back + sep + 'code=' + encodeURIComponent(code) + '&scope=' + encodeURIComponent(scope));
+})();
+</script>
+</body>
+</html>
