@@ -197,8 +197,9 @@ function doFit(id,shape){ const h=st.history.find(x=>x.id===id); if(!h) return; 
 const STRAVA_FN='/.netlify/functions/strava';
 function loadStrava(){ try{ return JSON.parse(localStorage.getItem('tm_strava')||'null'); }catch(e){ return null; } }
 function saveStrava(t){ try{ localStorage.setItem('tm_strava', JSON.stringify(t)); }catch(e){} st.strava=t; }
-function stravaConnect(){ const redirect=location.origin+location.pathname;
-  location.href='https://www.strava.com/oauth/authorize?client_id=277538&response_type=code&redirect_uri='+encodeURIComponent(redirect)+'&approval_prompt=auto&scope=activity:write'; }
+// Domaine de rappel de l'app Strava (partagée avec Trail Planner Pro) : trailplannerpro.com, dont le relais renvoie ici (state « tm »)
+function stravaConnect(){ const redirect='https://trailplannerpro.com/strava-relay/';
+  location.href='https://www.strava.com/oauth/authorize?client_id=277538&response_type=code&redirect_uri='+encodeURIComponent(redirect)+'&approval_prompt=auto&scope=activity:write&state=tm'; }
 function stravaLogout(){ localStorage.removeItem('tm_strava'); st.strava=null; render(); }
 async function stravaExchange(code){
   try{ const r=await fetch(STRAVA_FN,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'exchange',code})});
