@@ -83,7 +83,7 @@ function subMetrics(){ const m=metrics(st.speed, st.incReal), u=st.mainUnit, p=[
   if(u!=='minkm') p.push(fmtPace(m.minkm)+' /km');
   if(u!=='vkt') p.push(m.vkt.toFixed(1)+' km-e/h');
   return p.join('  ·  '); }
-function cycleUnit(){ const o=['kmh','minkm','vkt'], i=o.indexOf(st.mainUnit); st.mainUnit=o[(i+1)%3]; try{localStorage.setItem('tm_unit',st.mainUnit);}catch(e){} settingsChanged(); render(); }
+function cycleUnit(){ const o=['kmh','minkm','vkt'], i=o.indexOf(st.mainUnit); st.mainUnit=o[(i+1)%3]; try{localStorage.setItem('tm_unit',st.mainUnit);}catch(e){} settingsChanged('unit'); render(); }
 function paces(sp, dist, dplus){ return subMetrics(); }
 async function reconnectTm(){ if(knownTm){ try{ await setupTreadmill(knownTm); }catch(e){} } }
 function disconnect(){ if(device&&device.gatt.connected) device.gatt.disconnect(); st.connected=false; render(); }
@@ -198,11 +198,11 @@ function histFit(id){ const h=st.history.find(x=>x.id===id); if(!h) return;
 function doFit(id,shape){ const h=st.history.find(x=>x.id===id); if(!h) return; const b=buildFit(h.samples,h.route,shape); if(b) dl(new Blob([b],{type:'application/octet-stream'}), fname('fit')); }
 const STRAVA_FN='/.netlify/functions/strava';
 function loadStrava(){ try{ return JSON.parse(localStorage.getItem('tm_strava')||'null'); }catch(e){ return null; } }
-function saveStrava(t){ try{ localStorage.setItem('tm_strava', JSON.stringify(t)); }catch(e){} st.strava=t; settingsChanged(); }
+function saveStrava(t){ try{ localStorage.setItem('tm_strava', JSON.stringify(t)); }catch(e){} st.strava=t; settingsChanged('strava'); }
 // Domaine de rappel de l'app Strava (partagée avec Trail Planner Pro) : trailplannerpro.com, dont le relais renvoie ici (state « tm »)
 function stravaConnect(){ const redirect='https://trailplannerpro.com/strava-relay/';
   location.href='https://www.strava.com/oauth/authorize?client_id=277538&response_type=code&redirect_uri='+encodeURIComponent(redirect)+'&approval_prompt=auto&scope=activity:write&state=tm'; }
-function stravaLogout(){ localStorage.removeItem('tm_strava'); st.strava=null; settingsChanged(); render(); }
+function stravaLogout(){ localStorage.removeItem('tm_strava'); st.strava=null; settingsChanged('strava'); render(); }
 async function stravaExchange(code){
   try{ const r=await fetch(STRAVA_FN,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'exchange',code})});
     const j=await r.json();
@@ -313,8 +313,9 @@ async function onGpx(e){ const file=e.target.files&&e.target.files[0]; if(!file)
 const LS_KEY={sessions:'tm_sessions', history:'tm_history'};
 function cloudPut(kind,item){ item.u=Date.now(); if(window.TMCloud) TMCloud.put(kind,item); }
 function cloudDel(kind,id){ if(window.TMCloud) TMCloud.del(kind,id); }
-function settingsU(){ return parseInt(localStorage.getItem('tm_settings_u')||'0',10)||0; }
-function settingsChanged(){ try{ localStorage.setItem('tm_settings_u', String(Date.now())); }catch(e){} if(window.TMCloud) TMCloud.putSettings(); }
+// réglages synchronisés champ par champ (unit, strava), chacun avec son horodatage tm_<champ>_u (0 = jamais modifié depuis la synchro)
+function settingU(f){ return parseInt(localStorage.getItem('tm_'+f+'_u')||'0',10)||0; }
+function settingsChanged(f){ try{ localStorage.setItem('tm_'+f+'_u', String(Date.now())); }catch(e){} if(window.TMCloud) TMCloud.putSettings(); }
 function softRender(){ if(st.view==='build'||renaming) return; render(); }   // ne pas casser une saisie en cours
 function cloudLogin(){ if(window.TMCloud){ st.cloudInfo=''; TMCloud.login(); } }
 function cloudLogout(){ if(window.TMCloud) TMCloud.logout(); }
@@ -327,12 +328,15 @@ window.tmApp={
     if(k==='history') arr.sort((a,b)=>new Date(b.date)-new Date(a.date));
     st[k]=k==='history'?arr.slice(0,50):arr; persist(LS_KEY[k],st[k]); softRender(); },
   remove(k,id){ st[k]=st[k].filter(x=>x.id!==id); persist(LS_KEY[k],st[k]); softRender(); },
-  settings:()=>({unit:st.mainUnit, strava:st.strava||null, u:settingsU()}),
-  applySettings(d){ if(d.unit) st.mainUnit=d.unit; st.strava=d.strava||null;
-    try{ localStorage.setItem('tm_unit',st.mainUnit); if(st.strava) localStorage.setItem('tm_strava',JSON.stringify(st.strava)); else localStorage.removeItem('tm_strava'); localStorage.setItem('tm_settings_u',String(d.u||0)); }catch(e){}
+  settings:()=>({unit:localStorage.getItem('tm_unit')||null, unitU:settingU('unit'), strava:st.strava||null, stravaU:settingU('strava')}),
+  applySettings(d){   // d = { unit?: {v,u}, strava?: {v,u} }
+    try{
+      if(d.unit){ if(d.unit.v) st.mainUnit=d.unit.v; localStorage.setItem('tm_unit',st.mainUnit); localStorage.setItem('tm_unit_u',String(d.unit.u||0)); }
+      if(d.strava){ st.strava=d.strava.v||null; if(st.strava) localStorage.setItem('tm_strava',JSON.stringify(st.strava)); else localStorage.removeItem('tm_strava'); localStorage.setItem('tm_strava_u',String(d.strava.u||0)); }
+    }catch(e){}
     softRender(); },
   switchUser(uid){ const last=localStorage.getItem('tm_cloud_uid');
-    if(last && last!==uid){ st.sessions=[]; st.history=[]; st.strava=null; ['tm_sessions','tm_history','tm_strava','tm_settings_u'].forEach(k=>localStorage.removeItem(k)); }
+    if(last && last!==uid){ st.sessions=[]; st.history=[]; st.strava=null; ['tm_sessions','tm_history','tm_strava','tm_unit_u','tm_strava_u'].forEach(k=>localStorage.removeItem(k)); }
     try{ localStorage.setItem('tm_cloud_uid',uid); }catch(e){} },
   setUser(u){ st.user=u; softRender(); },
   cloudState(state,info){ st.cloud=state; if(info!=null) st.cloudInfo=info; else if(state!=='error') st.cloudInfo=''; softRender(); }

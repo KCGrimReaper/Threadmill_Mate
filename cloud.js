@@ -2,14 +2,14 @@
 // L'app fonctionne toujours sur ses données locales (localStorage) ; ce module recopie
 // chaque modification dans Firestore et applique celles venues des autres appareils.
 // Données (une seule zone par utilisateur, protégée par firestore.rules) :
-//   users/{uid}                       réglages { unit, strava, u }
+//   users/{uid}                       réglages { unit, unitU, strava, stravaU } (un horodatage par champ)
 //   users/{uid}/items/{kind}_{id}     une séance ou une course { kind, id, u, data | chunks, del? }
 //   users/{uid}/chunks/{kind}_{id}_{u}_{n}  morceaux des gros éléments (GPX longs), limite Firestore 1 Mo / document
 // Chaque élément porte `u` (horodatage de sa dernière modification) : le plus récent gagne.
 // Une suppression laisse une pierre tombale { del: true } pour ne pas ressusciter l'élément ailleurs.
 const V = '10.12.2', BASE = 'https://www.gstatic.com/firebasejs/' + V + '/';
 const CH = 700000;            // caractères par document (marge sous 1 Mo)
-const KINDS = ['sessions', 'history'];
+const KINDS = ['sessions', 'history'], SETTINGS = ['unit', 'strava'];
 const cfg = window.TM_FIREBASE_CONFIG;
 const app = window.tmApp;     // passerelle exposée par index.html
 
@@ -55,8 +55,7 @@ async function start() {
   }
   function putSettings() {
     if (!uid) return;
-    const st = app.settings(); st.u = st.u || 1;   // réglages d'avant la synchro (u = 0) : envoyés quand même
-    return F.setDoc(F.doc(db, 'users', uid), st).catch(fail);
+    return F.setDoc(F.doc(db, 'users', uid), app.settings()).catch(fail);
   }
   async function readItem(key, d) {
     if (d.data) return JSON.parse(d.data);
@@ -91,12 +90,27 @@ async function start() {
       app.cloudState('ok');
     }
   }
+  // Réglages fusionnés champ par champ : le plus récent gagne ; à égalité (deux valeurs jamais modifiées
+  // depuis la synchro, u = 0), une valeur l'emporte sur une absence (une connexion Strava n'est jamais
+  // effacée par un appareil qui n'en a simplement pas). Ancien format { unit, strava, u } : u = 1 voulait dire « jamais modifié ».
+  function remoteField(d, f) {
+    if (!d) return null;
+    const u = d[f + 'U'] != null ? d[f + 'U'] : (d.u > 1 ? d.u : 0);
+    return { v: d[f] === undefined ? null : d[f], u };
+  }
   function onSettings(snap) {
-    const d = snap.exists() ? snap.data() : null, lu = app.settings().u || 0;
-    if (d && (d.u || 0) > lu) app.applySettings(d);
+    const d = snap.exists() ? snap.data() : null, loc = app.settings(), upd = {};
+    let push = !d;
+    SETTINGS.forEach(f => {
+      const r = remoteField(d, f), lv = loc[f] == null ? null : loc[f], lu = loc[f + 'U'] || 0;
+      if (!r) return;
+      if (r.u > lu || (r.u === lu && lv == null && r.v != null)) upd[f] = r;
+      else if (r.u < lu || (r.u === lu && lv != null && r.v == null)) push = true;
+    });
+    if (Object.keys(upd).length) app.applySettings(upd);
     if (!settingsMerged && !snap.metadata.fromCache) {
       settingsMerged = true;
-      if (!d || lu > (d.u || 0)) putSettings();
+      if (push) putSettings();
     }
   }
 
