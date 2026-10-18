@@ -55,7 +55,7 @@ function clamp(v,a,b){ return Math.min(b,Math.max(a,v)); }
 
 // ---------- BLE ----------
 async function setupTreadmill(dev){
-  device=dev;
+  sim=false; simBelt=false; device=dev;
   device.addEventListener('gattserverdisconnected', ()=>{ archiveRun(); st.connected=false; render(); });
   const server=await device.gatt.connect();
   const svc=await server.getPrimaryService(FTMS);
@@ -93,7 +93,18 @@ function subMetrics(){ const m=metrics(st.speed, st.incReal), u=st.mainUnit, p=[
 function cycleUnit(){ const o=['kmh','minkm','vkt'], i=o.indexOf(st.mainUnit); st.mainUnit=o[(i+1)%3]; try{localStorage.setItem('tm_unit',st.mainUnit);}catch(e){} settingsChanged('unit'); render(); }
 function paces(sp, dist, dplus){ return subMetrics(); }
 async function reconnectTm(){ if(knownTm){ try{ await setupTreadmill(knownTm); }catch(e){} } }
-function disconnect(){ if(device&&device.gatt.connected) device.gatt.disconnect(); st.connected=false; render(); }
+// ---------- simulation (sans tapis) : pour essayer les séances et la vidéo ; la courroie se lance d'un bouton ----------
+let sim=false, simBelt=false;
+function simToggle(){ sim=!sim; simBelt=false; st.speed=0; st.incReal=0; curGrade=0;
+  if(sim){ if(device&&device.gatt.connected) device.gatt.disconnect(); spdMin=1; spdMax=18; incMin=0; incMax=15; st.connected=true; st.dist=0; st.dplus=0; st.elapsed=0; rec=[]; st.sheet=false; }
+  else st.connected=false;
+  render(); }
+function simBeltToggle(){ simBelt=!simBelt; st.speed=simBelt?clamp(st.spdT,spdMin,spdMax):0; render(); }
+function simBar(){ if(!sim) return '';
+  return '<div style="margin:0 18px 8px;display:flex;align-items:center;gap:10px;background:rgba(232,197,71,.1);border:1px solid #5a4d1c;border-radius:14px;padding:9px 12px">'+
+    '<span style="flex:1;font:600 12.5px Barlow;color:#E8C547;line-height:1.35">Simulation sans tapis<br><span style="font-weight:500;color:#a99a5c">rien n\'est enregistré dans l\'historique</span></span>'+
+    '<button onclick="simBeltToggle()" style="background:'+(simBelt?'#23261e':'#E8C547')+';border-radius:10px;padding:9px 12px;font:600 13px Barlow;color:'+(simBelt?'#FF7A6B':'#14170a')+'">'+(simBelt?'Arrêter la courroie':'Lancer la courroie')+'</button></div>'; }
+function disconnect(){ if(sim){ simToggle(); return; } if(device&&device.gatt.connected) device.gatt.disconnect(); st.connected=false; render(); }
 async function readRanges(svc){
   try{ const d=await (await svc.getCharacteristic(SPD_RANGE)).readValue(); spdMin=d.getUint16(0,true)*0.01; spdMax=d.getUint16(2,true)*0.01; }catch(e){}
   try{ const d=await (await svc.getCharacteristic(INC_RANGE)).readValue(); incMin=d.getInt16(0,true)*0.1; incMax=d.getInt16(2,true)*0.1; }catch(e){}
@@ -123,8 +134,8 @@ async function loadKnown(){
 }
 function sendControl(bytes){ if(!controlChar) return Promise.resolve();
   gattQueue=gattQueue.then(async()=>{ try{ await controlChar.writeValueWithResponse(new Uint8Array(bytes)); }catch(e){} }); return gattQueue; }
-function sendSpeed(v){ v=clamp(v,spdMin,spdMax); const r=Math.round(v*100); return sendControl([0x02,r&0xff,(r>>8)&0xff]); }
-function sendIncline(v){ v=clamp(v,incMin,incMax); const b=new ArrayBuffer(3),dv=new DataView(b); dv.setUint8(0,0x03); dv.setInt16(1,Math.round(v*10),true); return sendControl([...new Uint8Array(b)]); }
+function sendSpeed(v){ v=clamp(v,spdMin,spdMax); if(sim){ if(simBelt) st.speed=v; return Promise.resolve(); } const r=Math.round(v*100); return sendControl([0x02,r&0xff,(r>>8)&0xff]); }
+function sendIncline(v){ v=clamp(v,incMin,incMax); if(sim){ st.incReal=curGrade=v; return Promise.resolve(); } const b=new ArrayBuffer(3),dv=new DataView(b); dv.setUint8(0,0x03); dv.setInt16(1,Math.round(v*10),true); return sendControl([...new Uint8Array(b)]); }
 function parseData(dv){
   let o=0; const flags=dv.getUint16(o,true); o+=2; const has=b=>(flags&(1<<b))!==0; const out={};
   if(!has(0)){ out.speed=dv.getUint16(o,true)*0.01; o+=2; }
@@ -176,6 +187,7 @@ function segIdxAtDist(sess,d){ const segs=sess.segs; for(let i=0;i<segs.length;i
 // ---------- historique / export ----------
 function unloadPlay(){ st.play=null; st.vfull=false; st.view='drive'; render(); }
 function archiveRun(){
+  if(sim){ rec=[]; return; }   // course simulée : jamais dans l'historique (ni sur Strava)
   if(rec.length<2) return;
   const s=[]; for(let i=0;i<rec.length;i+=5) s.push(rec[i]); const last=rec[rec.length-1], first=rec[0];
   if(s[s.length-1]!==last) s.push(last);
@@ -535,7 +547,7 @@ function playPause(){ if(st.play){ st.play.paused=!st.play.paused; render(); } }
 function render(){
   const s=st, play=s.play, running=s.speed>0;
   const dotColor=(s.connected||s.hrOn)?ACC:'#4c5142';
-  const linkLabel=s.connected?(s.hrOn?'Tapis · FC':'Tapis'):'Hors ligne';
+  const linkLabel=sim?'Simulation':s.connected?(s.hrOn?'Tapis · FC':'Tapis'):'Hors ligne';
   let html='';
   // header
   html+='<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:16px 18px 10px">'+
@@ -544,6 +556,7 @@ function render(){
     '<span style="width:7px;height:7px;border-radius:99px;background:'+dotColor+'"></span>'+
     '<span style="font:600 12.5px Barlow;color:#C3C8B8">'+linkLabel+'</span></button></div>';
 
+  if(s.view==='drive'||s.view==='play') html+=simBar();
   if(s.view==='drive') html+=viewDrive();
   else if(s.view==='sessions') html+=viewSessions();
   else if(s.view==='build') html+=viewBuild();
@@ -777,7 +790,7 @@ function viewSheet(){ const s=st, hrLive=s.hrOn&&s.hr>=0;
     '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div style="font:600 19px Barlow">Appareils</div><button onclick="closeSheet()" style="background:transparent;font:500 22px Barlow;color:#8A8F80;line-height:1">×</button></div>'+
     '<div style="display:flex;align-items:center;gap:12px;background:#191b18;border:1px solid #26291f;border-radius:16px;padding:13px 14px;margin-bottom:8px">'+
     '<span style="width:9px;height:9px;border-radius:99px;background:'+(s.connected?ACC:'#4c5142')+'"></span>'+
-    '<div style="flex:1;min-width:0"><div style="font:600 14.5px Barlow">Tapis roulant</div><div style="font:500 12px Barlow;color:#8A8F80">'+(s.connected?'Connecté en FTMS':'Aucun tapis appairé')+'</div></div>'+
+    '<div style="flex:1;min-width:0"><div style="font:600 14.5px Barlow">Tapis roulant</div><div style="font:500 12px Barlow;color:#8A8F80">'+(sim?'Simulation en cours':s.connected?'Connecté en FTMS':'Aucun tapis appairé')+'</div></div>'+
     '<button onclick="'+(s.connected?'disconnect()':'connect()')+'" style="background:'+(s.connected?'#23261e':ACC)+';border-radius:11px;padding:10px 14px;font:600 13px Barlow;color:'+(s.connected?'#FF7A6B':'#14170a')+'">'+(s.connected?'Couper':'Connecter')+'</button></div>'+
     '<div style="display:flex;align-items:center;gap:12px;background:#191b18;border:1px solid #26291f;border-radius:16px;padding:13px 14px;margin-bottom:14px">'+
     '<span style="width:9px;height:9px;border-radius:99px;background:'+(hrLive?'#FF7A6B':'#4c5142')+'"></span>'+
@@ -787,6 +800,10 @@ function viewSheet(){ const s=st, hrLive=s.hrOn&&s.hr>=0;
     '<span style="width:9px;height:9px;border-radius:99px;background:'+(s.strava?'#fc5200':'#4c5142')+'"></span>'+
     '<div style="flex:1;min-width:0"><div style="font:600 14.5px Barlow">Strava</div><div style="font:500 12px Barlow;color:#8A8F80">'+(s.strava?('Connecté'+(s.strava.athlete&&s.strava.athlete.firstname?' · '+esc(s.strava.athlete.firstname):'')):'Publier tes courses automatiquement')+'</div></div>'+
     '<button onclick="'+(s.strava?'stravaLogout()':'stravaConnect()')+'" style="background:'+(s.strava?'#23261e':'#fc5200')+';border-radius:11px;padding:10px 14px;font:600 13px Barlow;color:'+(s.strava?'#FF7A6B':'#fff')+'">'+(s.strava?'Délier':'Connecter')+'</button></div>'+
+    '<div style="display:flex;align-items:center;gap:12px;background:#191b18;border:1px solid #26291f;border-radius:16px;padding:13px 14px;margin-bottom:14px">'+
+    '<span style="width:9px;height:9px;border-radius:99px;background:'+(sim?'#E8C547':'#4c5142')+'"></span>'+
+    '<div style="flex:1;min-width:0"><div style="font:600 14.5px Barlow">Simulation</div><div style="font:500 12px Barlow;color:#8A8F80">Essayer séances et vidéo sans tapis</div></div>'+
+    '<button onclick="simToggle()" style="background:'+(sim?'#23261e':'#E8C547')+';border-radius:11px;padding:10px 14px;font:600 13px Barlow;color:'+(sim?'#FF7A6B':'#14170a')+'">'+(sim?'Arrêter':'Activer')+'</button></div>'+
     cloudRow()+
     '<div style="font:500 12px Barlow;color:#6d7264;line-height:1.5">Le démarrage de la courroie reste sur le bouton physique du tapis. L\'app pilote l\'allure et la pente, et enregistre la course.</div></div></div>'; }
 

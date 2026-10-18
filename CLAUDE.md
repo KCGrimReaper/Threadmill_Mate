@@ -16,6 +16,7 @@ Pas de chaîne de build : site statique (racine publiée telle quelle par Netlif
   - Séances (`st.sessions`) : intervalles (`segments` {name, dur s, spd km/h, inc %}) ou GPX importé (`onGpx` : tronçons de 50 m `segs` {d0, d1, grade, spd}, trace `track` {d, lat, lon, ele}).
   - Historique (`st.history`, 50 courses au plus en local) : export FIT (`buildFit`), publication Strava (`stravaPublish` → fonction Netlify), forme décorative du tracé pour les courses sans GPX (`virtualPos`).
   - Allure « km-effort » : `metrics()` (v × (1 + pente/10)).
+  - Simulation sans tapis (feuille Appareils › Simulation, `sim` / `simBelt`) : `sendSpeed` / `sendIncline` agissent directement sur `st.speed` / `st.incReal`, courroie lancée par le bouton de `simBar()` ; une course simulée n'est jamais archivée (`archiveRun`). Sert à essayer séances et vidéo sans tapis.
 - `netlify/functions/strava.js` : échange OAuth et envoi du FIT à Strava (secrets `STRAVA_CLIENT_ID` / `STRAVA_CLIENT_SECRET` dans les variables Netlify).
 - Strava : **une seule app Strava (Client ID 277538) partagée** avec Trail Planner Pro et Renfo Ultra-Trail ; domaine de retour unique `trailplannerpro.com`, dont la page `/strava-relay/` renvoie ici (state `tm`). Les pages `strava-tpp/` et `strava-renfo/` sont des relais Strava en service. **Ne jamais toucher à ce qui concerne Strava (relais, fonction Netlify, connexion) sans demande explicite du propriétaire**, ni changer le domaine de retour chez Strava sans changer les trois apps.
 
