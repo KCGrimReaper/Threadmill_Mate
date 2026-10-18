@@ -24,7 +24,8 @@
   function readStr(u8, o, n) { let s = ''; for (let i = 0; i < n; i++) { const c = u8[o + i]; if (c) s += String.fromCharCode(c); } return s; }
 
   // Points GPS d'une charge GPMF (environ 1 s de vidéo) : [{lat, lon, ele}] dans l'ordre, déjà filtrés (fix, précision).
-  function parseGpmf(u8) {
+  // stats (facultatif) : stats.raw += nombre de mesures GPS avant filtrage (0 = pas de GPS du tout).
+  function parseGpmf(u8, stats) {
     const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength), out = [];
     (function walk(start, end, strm) {
       let o = start;
@@ -39,6 +40,7 @@
           else if (key === 'GPSF') strm.fix = readNum(dv, d, type);
           else if (key === 'GPSP') strm.dop = readNum(dv, d, type);
           else if (key === 'GPS5' && type === 'l') {
+            if (stats) stats.raw += rep;
             const sc = strm.scal || [1, 1, 1, 1, 1], ok = (strm.fix == null || strm.fix >= 2) && (strm.dop == null || strm.dop <= 500);
             if (ok) for (let i = 0; i < rep; i++) {
               const b = d + i * size, s = k => sc[Math.min(k, sc.length - 1)] || 1;
@@ -47,6 +49,7 @@
           } else if (key === 'GPS9') {
             // HERO11 et suivantes : lat, lon, alt, vit. 2D, vit. 3D, jours, secondes, DOP, fix (TYPE « lllllllSS »)
             const tp = strm.type || 'lllllllSS', sc = strm.scal || [];
+            if (stats) stats.raw += rep;
             for (let i = 0; i < rep; i++) {
               const v = []; let b = d + i * size;
               for (let k = 0; k < tp.length; k++) { v.push(readNum(dv, b, tp[k]) / (sc[k] || 1)); b += SIZES[tp[k]] || 4; }
@@ -75,7 +78,7 @@
   const child = (dv, b, type) => boxes(dv, b.start, b.end).find(x => x.type === type);
   function path(dv, b, types) { for (const t of types) { if (!b) return null; b = child(dv, b, t); } return b; }
 
-  // Lecture d'un fichier (File/Blob) : renvoie { dur (s), pts: [{t (s), lat, lon, ele}] }.
+  // Lecture d'un fichier (File/Blob) : renvoie { dur (s), pts: [{t (s), lat, lon, ele}], track (piste de télémétrie présente), raw (mesures GPS avant filtrage) }.
   async function readMp4Gps(file, onProgress) {
     const slice = async (a, b) => new DataView(await file.slice(a, b).arrayBuffer());
     // boîte moov : au début ou à la fin du fichier, on saute les autres (mdat fait plusieurs Go)
@@ -98,7 +101,7 @@
       const stsd = path(moov, t, ['mdia', 'minf', 'stbl', 'stsd']);
       if (stsd && stsd.end - stsd.start >= 16 && String.fromCharCode(...new Uint8Array(moov.buffer, stsd.start + 12, 4)) === 'gpmd') { trak = t; break; }
     }
-    if (!trak) return { dur, pts: [] };   // pas de télémétrie (autre caméra, ou fichier réencodé)
+    if (!trak) return { dur, pts: [], track: false, raw: 0 };   // pas de télémétrie (autre caméra, ou fichier réexporté)
     const mdhd = path(moov, trak, ['mdia', 'mdhd']), stbl = path(moov, trak, ['mdia', 'minf', 'stbl']);
     const mv = moov.getUint8(mdhd.start), scale = mv ? moov.getUint32(mdhd.start + 20) : moov.getUint32(mdhd.start + 12);
     const u32 = (b, i) => moov.getUint32(b.start + i);
@@ -117,16 +120,16 @@
       let off = chunks[ci];
       for (let j = 0; j < per && s < n; j++, s++) { samples.push({ off, size: sizes[s] }); off += sizes[s]; }
     }
-    const pts = []; let t = 0;
+    const pts = [], stats = { raw: 0 }; let t = 0;
     for (let i = 0; i < samples.length; i++) {
       const dt = (deltas[i] != null ? deltas[i] : deltas[deltas.length - 1] || scale) / scale;
       const u8 = new Uint8Array(await file.slice(samples[i].off, samples[i].off + samples[i].size).arrayBuffer());
-      const g = parseGpmf(u8);
+      const g = parseGpmf(u8, stats);
       g.forEach((p, k) => pts.push({ t: t + dt * k / g.length, lat: p.lat, lon: p.lon, ele: p.ele }));
       t += dt;
       if (onProgress && i % 20 === 0) onProgress(i / samples.length);
     }
-    return { dur: dur || t, pts };
+    return { dur: dur || t, pts, track: true, raw: stats.raw };
   }
 
   // ---------- correspondance distance du tracé → vidéo ----------
@@ -168,6 +171,8 @@
       else if (b !== a && d >= b.d) { fi = b.fi; t = b.t; }
       map.push([d, fi, Math.round(t * 100) / 100]);
     }
+    const last = proj[proj.length - 1];
+    if (!map.length || map[map.length - 1][0] < d1) map.push([d1, last.fi, Math.round(last.t * 100) / 100]);
     return { map, d0, d1 };
   }
 
@@ -184,6 +189,24 @@
     return { map, d0: 0, d1: totalDist };
   }
 
+  // Calage manuel (comme l'import de Kinomap) : l'instant tA de la vidéo correspond au km d0 du tracé, tB à d1 ;
+  // défilement régulier entre les deux. Les temps tA / tB sont comptés sur les fichiers mis bout à bout.
+  function anchorVideoMap(files, tA, tB, d0, d1, step) {
+    step = step || 5;
+    if (!(tB > tA) || !(d1 - d0 >= 100)) return null;
+    const map = [];
+    for (let d = Math.ceil(d0 / step) * step; d <= d1; d += step) {
+      let tt = tA + (d - d0) / (d1 - d0) * (tB - tA), fi = 0;
+      while (fi < files.length - 1 && tt > files[fi].dur) { tt -= files[fi].dur; fi++; }
+      map.push([d, fi, Math.round(Math.min(tt, files[fi].dur) * 100) / 100]);
+    }
+    if (!map.length || map[map.length - 1][0] < d1) {
+      let tt = tB, fi = 0; while (fi < files.length - 1 && tt > files[fi].dur) { tt -= files[fi].dur; fi++; }
+      map.push([d1, fi, Math.round(Math.min(tt, files[fi].dur) * 100) / 100]);
+    }
+    return { map, d0, d1 };
+  }
+
   // Position dans la vidéo pour une distance du tracé : { fi, t, vs (vitesse de la vidéo à cet endroit, m/s) } ou null hors vidéo.
   function videoAt(v, d) {
     const m = v.map; if (!m || !m.length || d < m[0][0] || d > m[m.length - 1][0]) return null;
@@ -194,11 +217,12 @@
     if (b[1] === a[1] && b[0] > a[0]) t = a[2] + (b[2] - a[2]) * (d - a[0]) / (b[0] - a[0]);
     // vitesse de la vidéo : sur ±25 m autour du point, dans le même fichier
     const w = Math.max(1, Math.round(25 / ((m[1] ? m[1][0] - m[0][0] : 5) || 5)));
-    const p = m[Math.max(0, lo - w)], q = m[Math.min(m.length - 1, lo + w)];
+    let p = m[Math.max(0, lo - w)], q = m[Math.min(m.length - 1, lo + w)];
+    if (p[1] !== q[1]) { if (p[1] !== a[1]) p = a; else q = a; }   // changement de fichier : on reste du côté du point courant
     const vs = (p[1] === q[1] && q[2] > p[2]) ? (q[0] - p[0]) / (q[2] - p[2]) : 0;
     return { fi, t, vs };
   }
 
-  const api = { parseGpmf, readMp4Gps, buildVideoMap, linearVideoMap, videoAt };
+  const api = { parseGpmf, readMp4Gps, buildVideoMap, linearVideoMap, anchorVideoMap, videoAt };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.TMGoPro = api;
 })(typeof window !== 'undefined' ? window : globalThis);

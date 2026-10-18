@@ -2,14 +2,14 @@
 // L'app fonctionne toujours sur ses données locales (localStorage) ; ce module recopie
 // chaque modification dans Firestore et applique celles venues des autres appareils.
 // Données (une seule zone par utilisateur, protégée par firestore.rules) :
-//   users/{uid}                       réglages { unit, unitU, strava, stravaU } (un horodatage par champ)
+//   users/{uid}                       réglages { unit, strava, hud (tableau de bord vidéo) } + un horodatage par champ (unitU…)
 //   users/{uid}/items/{kind}_{id}     une séance ou une course { kind, id, u, data | chunks, del? }
 //   users/{uid}/chunks/{kind}_{id}_{u}_{n}  morceaux des gros éléments (GPX longs), limite Firestore 1 Mo / document
 // Chaque élément porte `u` (horodatage de sa dernière modification) : le plus récent gagne.
 // Une suppression laisse une pierre tombale { del: true } pour ne pas ressusciter l'élément ailleurs.
 const V = '10.12.2', BASE = 'https://www.gstatic.com/firebasejs/' + V + '/';
 const CH = 700000;            // caractères par document (marge sous 1 Mo)
-const KINDS = ['sessions', 'history'], SETTINGS = ['unit', 'strava'];
+const KINDS = ['sessions', 'history'], SETTINGS = ['unit', 'strava', 'hud'];
 const cfg = window.TM_FIREBASE_CONFIG;
 const app = window.tmApp;     // passerelle exposée par index.html
 
