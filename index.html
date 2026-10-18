@@ -15,12 +15,19 @@
   input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
   #app{max-width:430px;margin:0 auto;min-height:100vh;background:#101110;display:flex;flex-direction:column;position:relative;overflow:hidden}
   .stepbtn:active{filter:brightness(1.15)}
+  #ui{display:contents}
+  #vbox{position:absolute;display:none;background:#000;border-radius:16px;overflow:hidden;z-index:5}
+  #vbox video{width:100%;height:100%;object-fit:cover;display:block}
+  #vbox.full{position:fixed;inset:0;border-radius:0;z-index:40}
+  #vbox.full video{object-fit:contain}
 </style>
 </head>
 <body>
-<div id="app"></div>
+<div id="app"><div id="ui"></div><div id="vbox" onclick="toggleVideoFull()"><video id="tmv" playsinline muted preload="auto"></video><div id="vhud"></div></div></div>
 <input type="file" id="gpxFile" accept=".gpx" style="display:none">
+<input type="file" id="vidFile" accept="video/mp4,.mp4,.MP4,.mov,.MOV" multiple style="display:none">
 <script src="firebase-config.js"></script>
+<script src="gopro.js"></script>
 <script>
 const FTMS=0x1826, DATA=0x2acd, CONTROL=0x2ad9, SPD_RANGE=0x2ad4, INC_RANGE=0x2ad5;
 const HR_SVC=0x180d, HR_MEAS=0x2a37, SENT=0x7fff, GPX_SEG=50;
@@ -29,12 +36,12 @@ const STEP=0.1;
 
 let st={ view:'drive', connected:false, hrOn:false, speed:0, incReal:0, mainUnit:'kmh', dist:0, dplus:0, elapsed:0, hr:0,
   spdT:9.5, incT:4, grades:[], speeds:[], sessions:[], history:[], strava:null, pubId:null, shapePick:null, draft:null, buildErr:'', msg:'', msgColor:'#8A8F80',
-  play:null, sheet:false, cloud:window.TM_FIREBASE_CONFIG?'syncing':'off', cloudInfo:'', user:null };
+  play:null, sheet:false, vidSheet:null, vfull:false, cloud:window.TM_FIREBASE_CONFIG?'syncing':'off', cloudInfo:'', user:null };
 let spdMin=1, spdMax=18, incMin=0, incMax=15;
 let device=null, controlChar=null, hrDevice=null, wakeLock=null;
 let rec=[], activeRoute=null, gattQueue=Promise.resolve(), lastTs=0, curGrade=0;
 let selMode={hist:false,sess:false}, selSet={hist:new Set(),sess:new Set()}, renaming=null;
-let knownTm=null, knownHr=null, freeStarted=false, freeReaching=false;
+let knownTm=null, knownHr=null, freeStarted=false, freeReaching=false, lastTickAt=0;
 
 // ---------- utils ----------
 function loadLS(k){ try{ return JSON.parse(localStorage.getItem(k)||'[]'); }catch(e){ return []; } }
@@ -161,13 +168,13 @@ function launch(id){ const s=st.sessions.find(x=>x.id===id); if(!s) return;
   st.play=play; st.view='play'; st.dist=0; st.dplus=0; st.elapsed=0; st.grades=[]; st.speeds=[];
   st.spdT = s.type==='gpx' ? (first.spd||st.spdT) : first.spd;
   st.incT = s.type==='gpx' ? first.grade : first.inc;
-  sendControl([0x07]); render(); }
-function doStop(){ if(st.play) sendSpeed(spdMin); archiveRun(); st.play=null; st.view='history'; render(); }
+  sendControl([0x07]); st.vfull=false; if(s.video) restoreVideo(s); render(); }
+function doStop(){ if(st.play) sendSpeed(spdMin); archiveRun(); st.play=null; st.vfull=false; st.view='history'; render(); }
 function segAtDist(sess,d){ const segs=sess.segs; for(let i=0;i<segs.length;i++) if(d<segs[i].d1) return segs[i]; return segs[segs.length-1]; }
 function segIdxAtDist(sess,d){ const segs=sess.segs; for(let i=0;i<segs.length;i++) if(d<segs[i].d1) return i; return segs.length-1; }
 
 // ---------- historique / export ----------
-function unloadPlay(){ st.play=null; st.view='drive'; render(); }
+function unloadPlay(){ st.play=null; st.vfull=false; st.view='drive'; render(); }
 function archiveRun(){
   if(rec.length<2) return;
   const s=[]; for(let i=0;i<rec.length;i+=5) s.push(rec[i]); const last=rec[rec.length-1], first=rec[0];
@@ -342,6 +349,135 @@ window.tmApp={
   cloudState(state,info){ st.cloud=state; if(info!=null) st.cloudInfo=info; else if(state!=='error') st.cloudInfo=''; softRender(); }
 };
 
+// ---------- vidéo GoPro calée sur le GPX (gopro.js) ----------
+// La séance garde la correspondance distance → instant de la vidéo (sess.video, synchronisée) ; les fichiers vidéo restent
+// sur l'appareil : gardés en mémoire pendant la session (vidFiles) et, si le navigateur le permet, leurs « poignées » dans IndexedDB.
+let vidFiles={}, vidCur={sid:null,fi:-1,url:null};
+function idbOpen(){ return new Promise((res,rej)=>{ const r=indexedDB.open('tm',1); r.onupgradeneeded=()=>r.result.createObjectStore('vid'); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+async function idbGet(k){ try{ const db=await idbOpen(); return await new Promise(res=>{ const q=db.transaction('vid').objectStore('vid').get(k); q.onsuccess=()=>res(q.result||null); q.onerror=()=>res(null); }); }catch(e){ return null; } }
+async function idbSet(k,v){ try{ const db=await idbOpen(); const tx=db.transaction('vid','readwrite'); if(v==null) tx.objectStore('vid').delete(k); else tx.objectStore('vid').put(v,k); }catch(e){} }
+// fichiers GoPro : GH<chapitre 2 chiffres><numéro 4 chiffres>.MP4 → ordre de tournage = numéro puis chapitre
+function goproKey(n){ const m=/^G[A-Z](\d\d)(\d{4})/i.exec(n); return m? m[2]+m[1] : '~'+n; }
+async function pickVideos(){
+  if(window.showOpenFilePicker){
+    try{ const hs=await showOpenFilePicker({multiple:true, types:[{description:'Vidéo',accept:{'video/mp4':['.mp4','.MP4'],'video/quicktime':['.mov','.MOV']}}]});
+      return {files:await Promise.all(hs.map(h=>h.getFile())), handles:hs}; }
+    catch(e){ if(e.name==='AbortError') return null; }
+  }
+  return new Promise(res=>{ const inp=document.getElementById('vidFile'); inp.onchange=()=>{ const f=[...inp.files]; inp.value=''; res(f.length?{files:f,handles:null}:null); }; inp.click(); });
+}
+function sortPicked(pk){ const idx=pk.files.map((f,i)=>i).sort((a,b)=>goproKey(pk.files[a].name)<goproKey(pk.files[b].name)?-1:1);
+  return {files:idx.map(i=>pk.files[i]), handles:pk.handles?idx.map(i=>pk.handles[i]):null}; }
+function openVideoSheet(id){ st.vidSheet={id, stage:'start', msg:'', prog:0}; render(); }
+function closeVideoSheet(){ st.vidSheet=null; render(); }
+async function videoAssociate(){ const vs=st.vidSheet, sess=st.sessions.find(x=>x.id===vs.id); if(!sess) return;
+  let pk=await pickVideos(); if(!pk) return; pk=sortPicked(pk);
+  vs.stage='reading'; vs.prog=0; vs.msg=''; render();
+  try{
+    const reads=[];
+    for(let i=0;i<pk.files.length;i++){ reads.push(await TMGoPro.readMp4Gps(pk.files[i], p=>{ vs.prog=(i+p)/pk.files.length; render(); })); }
+    const files=pk.files.map((f,i)=>({name:f.name, size:f.size, dur:Math.round(reads[i].dur*100)/100}));
+    const withGps=reads.filter(r=>r.pts.length>10).length;
+    let v=null, src='gps';
+    if(withGps===reads.length) v=TMGoPro.buildVideoMap(sess.track||[], reads);
+    if(!v){ vs.pending={pk, files}; vs.stage=withGps?'nomatch':'nogps'; render(); return; }
+    saveVideo(sess, pk, files, v, src);
+  }catch(e){ vs.stage='error'; vs.msg=e.message||String(e); render(); }
+}
+// sans GPS (ou GPS qui ne suit pas le tracé) : début de la vidéo = départ du GPX, fin = arrivée
+function videoLinear(){ const vs=st.vidSheet, sess=st.sessions.find(x=>x.id===vs.id); if(!sess||!vs.pending) return;
+  const v=TMGoPro.linearVideoMap(sess.totalDist, vs.pending.files); if(!v){ vs.stage='error'; vs.msg='Vidéo trop courte.'; render(); return; }
+  saveVideo(sess, vs.pending.pk, vs.pending.files, v, 'linear'); }
+function saveVideo(sess, pk, files, v, src){
+  sess.video={files, src, d0:Math.round(v.d0), d1:Math.round(v.d1), map:v.map};
+  vidFiles[sess.id]=pk.files; if(pk.handles) idbSet('h_'+sess.id, pk.handles);
+  cloudPut('sessions',sess); persist('tm_sessions',st.sessions);
+  st.vidSheet={id:sess.id, stage:'done', msg:'', prog:1}; render(); }
+function videoRemove(){ const vs=st.vidSheet, sess=st.sessions.find(x=>x.id===vs.id); if(!sess) return;
+  delete sess.video; delete vidFiles[sess.id]; idbSet('h_'+sess.id, null);
+  cloudPut('sessions',sess); persist('tm_sessions',st.sessions); st.vidSheet=null; render(); }
+// au lancement : retrouve les fichiers déjà autorisés (poignées gardées), sinon bouton « Choisir la vidéo » dans la vue course
+async function restoreVideo(sess){ if(vidFiles[sess.id]) return;
+  const hs=await idbGet('h_'+sess.id); if(!hs||!hs.length) return;
+  try{ for(const h of hs){ if(!h.queryPermission || await h.queryPermission({mode:'read'})!=='granted') return; }
+    vidFiles[sess.id]=await Promise.all(hs.map(h=>h.getFile())); render(); }catch(e){} }
+async function videoLoad(){ const play=st.play, sess=play&&play.session; if(!sess||!sess.video) return;
+  const hs=await idbGet('h_'+sess.id);
+  if(hs&&hs.length&&hs[0].requestPermission){
+    try{ let ok=true; for(const h of hs){ if(await h.requestPermission({mode:'read'})!=='granted') ok=false; }
+      if(ok){ vidFiles[sess.id]=await Promise.all(hs.map(h=>h.getFile())); render(); return; } }catch(e){}
+  }
+  let pk=await pickVideos(); if(!pk) return; pk=sortPicked(pk);
+  const want=sess.video.files;
+  if(pk.files.length!==want.length || pk.files.some((f,i)=>f.size!==want[i].size)){ st.vidMsg='Ce ne sont pas les fichiers de cette vidéo ('+want.map(f=>f.name).join(', ')+').'; render(); return; }
+  st.vidMsg=''; vidFiles[sess.id]=pk.files; if(pk.handles) idbSet('h_'+sess.id, pk.handles); render(); }
+function videoSlot(sess){
+  if(vidFiles[sess.id]) return '<div id="vslot" style="margin:10px 18px 0;aspect-ratio:16/9"></div>';
+  const names=sess.video.files.map(f=>esc(f.name)).join(', ');
+  return '<button onclick="videoLoad()" style="margin:10px 18px 0;background:#191b18;border:1px dashed #3a3f33;border-radius:16px;padding:14px;text-align:left;font:600 13px Barlow;color:#C3C8B8;line-height:1.4">Vidéo : choisir '+names+'<br><span style="font:500 12px Barlow;color:#6d7264">les fichiers restent sur cet appareil</span></button>'+
+    (st.vidMsg?'<div style="margin:6px 18px 0;font:500 12px Barlow;color:#FF7A6B">'+esc(st.vidMsg)+'</div>':''); }
+function toggleVideoFull(){ st.vfull=!st.vfull; render(); }
+// pose la vidéo (élément permanent, hors du rendu) sur son emplacement, ou en plein écran avec les chiffres par-dessus
+function placeVideo(){ const box=document.getElementById('vbox'), slot=document.getElementById('vslot'), app=document.getElementById('app'), hud=document.getElementById('vhud');
+  const on=!!(st.play && st.view==='play' && slot);
+  box.classList.toggle('full', on && st.vfull);
+  if(!on){ box.style.display='none'; hud.innerHTML=''; return; }
+  box.style.display='block';
+  if(st.vfull){ box.style.top=box.style.left=box.style.width=box.style.height=''; hud.innerHTML=videoHud(); return; }
+  const a=app.getBoundingClientRect(), r=slot.getBoundingClientRect();
+  box.style.top=(r.top-a.top)+'px'; box.style.left=(r.left-a.left)+'px'; box.style.width=r.width+'px'; box.style.height=r.height+'px';
+  hud.innerHTML='<div style="position:absolute;right:8px;bottom:8px;background:rgba(0,0,0,.55);border-radius:8px;padding:4px 8px;font:600 11px Barlow;color:#F2F4EE">plein écran</div>'+vidOutside(); }
+function vidOutside(){ return vidCur.out?'<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);font:600 13px Barlow;color:#C3C8B8;text-align:center;padding:12px">'+vidCur.out+'</div>':''; }
+function videoHud(){ const s=st, sess=s.play.session, rest=Math.max(0,sess.totalDist-s.dist), g=segAtDist(sess,s.dist).grade;
+  const box=(l,v)=>'<div style="text-align:center"><div style="font:600 10px Barlow;letter-spacing:.12em;color:#C3C8B8">'+l+'</div><div style="font:600 30px \'Barlow Condensed\';line-height:1;font-variant-numeric:tabular-nums">'+v+'</div></div>';
+  return vidOutside()+'<div style="position:absolute;left:0;right:0;bottom:0;padding:14px 16px calc(14px + env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(0,0,0,.75));display:grid;grid-template-columns:repeat(5,1fr);gap:6px;color:#F2F4EE">'+
+    box('KM/H',s.speed.toFixed(1))+box('PENTE',g.toFixed(0)+'%')+box('RESTE',(rest/1000).toFixed(2))+box('TEMPS',fmt(s.elapsed))+box('FC',s.hr>0?String(s.hr):'—')+'</div>'+
+    '<div style="position:absolute;top:calc(12px + env(safe-area-inset-top));right:14px;background:rgba(0,0,0,.55);border-radius:99px;padding:6px 12px;font:600 12px Barlow;color:#F2F4EE">Quitter le plein écran</div>'; }
+// toutes les 250 ms : instant de la vidéo pour la distance courue (interpolée entre deux mesures), vitesse de lecture
+// = ta vitesse ÷ vitesse filmée à cet endroit, corrigée de l'écart ; au-delà de 3 s d'écart, saut direct.
+function videoSync(){ const v=document.getElementById('tmv'), play=st.play, sess=play&&play.session;
+  const files=sess&&sess.video&&vidFiles[sess.id];
+  if(!files || st.view!=='play'){ if(!v.paused) v.pause(); if(!play&&vidCur.url){ URL.revokeObjectURL(vidCur.url); vidCur={sid:null,fi:-1,url:null}; v.removeAttribute('src'); v.load(); } return; }
+  const moving=st.speed>0 && play.started && !play.paused;
+  const dEst=st.dist+(moving&&lastTickAt? st.speed/3.6*Math.min(1.2,(performance.now()-lastTickAt)/1000) : 0);
+  const at=TMGoPro.videoAt(sess.video, dEst);
+  const out = at? '' : (dEst<sess.video.d0? 'La vidéo commence à '+(sess.video.d0/1000).toFixed(2)+' km' : 'Fin de la vidéo');
+  if(out!==(vidCur.out||'')){ vidCur.out=out; placeVideo(); }
+  if(!at){ if(!v.paused) v.pause(); return; }
+  if(vidCur.sid!==sess.id || vidCur.fi!==at.fi){ if(vidCur.url) URL.revokeObjectURL(vidCur.url);
+    vidCur.url=URL.createObjectURL(files[at.fi]); vidCur.sid=sess.id; vidCur.fi=at.fi; v.src=vidCur.url; v.currentTime=at.t; }
+  if(!moving){ if(!v.paused) v.pause(); if(v.readyState>=1 && Math.abs(v.currentTime-at.t)>0.5) v.currentTime=at.t; return; }
+  const drift=at.t-v.currentTime;
+  if(Math.abs(drift)>3 && v.readyState>=1){ v.currentTime=at.t; }
+  const base=at.vs>0.3 ? (st.speed/3.6)/at.vs : 1;
+  v.playbackRate=clamp(base*(1+clamp(drift*0.25,-0.5,0.5)),0.2,6);
+  if(v.paused) v.play().catch(()=>{}); }
+function viewVideoSheet(){ const vs=st.vidSheet, sess=st.sessions.find(x=>x.id===vs.id); if(!sess) return '';
+  const btn=(on,label,primary)=>'<button onclick="'+on+'" style="width:100%;background:'+(primary?ACC:'#23261e')+';border-radius:14px;padding:14px;font:600 14px Barlow;color:'+(primary?'#14170a':'#C3C8B8')+';margin-top:8px">'+label+'</button>';
+  const txt=t=>'<div style="font:500 13px Barlow;color:#C3C8B8;line-height:1.5;margin-bottom:6px">'+t+'</div>';
+  let body='';
+  if(vs.stage==='start'){
+    if(sess.video){ const v=sess.video;
+      body=txt('Vidéo associée : <b>'+v.files.map(f=>esc(f.name)).join(', ')+'</b>')+
+        txt(v.src==='gps'?'Calée sur le GPS de la GoPro, de '+(v.d0/1000).toFixed(2)+' à '+(v.d1/1000).toFixed(2)+' km du tracé.':'Calée du départ à l\'arrivée (sans GPS).')+
+        btn('videoAssociate()','Choisir une autre vidéo',false)+btn('videoRemove()','Retirer la vidéo',false);
+    } else body=txt('Choisis le ou les fichiers MP4 de ta GoPro filmés sur ce parcours (une longue sortie est coupée en plusieurs fichiers : prends-les tous).')+
+      txt('L\'app lit le GPS enregistré par la caméra et cale la vidéo sur le tracé : elle avance à ta vitesse sur le tapis. Les fichiers restent sur cet appareil.')+
+      btn('videoAssociate()','Choisir les fichiers vidéo',true);
+  } else if(vs.stage==='reading') body=txt('Lecture du GPS de la vidéo… '+Math.round(vs.prog*100)+' %')+
+    '<div style="height:4px;background:#23261e;border-radius:2px;margin-top:8px"><div style="height:4px;background:'+ACC+';border-radius:2px;width:'+Math.round(vs.prog*100)+'%"></div></div>';
+  else if(vs.stage==='done'){ const v=sess.video;
+    body=txt(v.src==='gps'?'Vidéo calée sur le tracé grâce au GPS de la GoPro : de '+(v.d0/1000).toFixed(2)+' à '+(v.d1/1000).toFixed(2)+' km.':'Vidéo calée du départ à l\'arrivée du tracé.')+
+      txt('Lance la séance : la vidéo défile à ta vitesse. Touche-la pour passer en plein écran.')+btn('closeVideoSheet()','OK',true); }
+  else if(vs.stage==='nogps') body=txt('Pas de GPS dans ces fichiers (GPS désactivé sur la caméra, ou vidéo réencodée).')+
+    txt('Je peux la caler du départ à l\'arrivée : début de la vidéo = départ du tracé, fin = arrivée. Le calage est juste si tu as filmé tout le parcours d\'une traite.')+btn('videoLinear()','Caler du départ à l\'arrivée',true)+btn('closeVideoSheet()','Annuler',false);
+  else if(vs.stage==='nomatch') body=txt('Le GPS de la vidéo ne suit pas ce tracé : est-ce bien le même parcours ?')+
+    btn('videoLinear()','Caler quand même du départ à l\'arrivée',false)+btn('closeVideoSheet()','Annuler',false);
+  else body='<div style="font:600 13px Barlow;color:#FF7A6B;line-height:1.5">Vidéo : '+esc(vs.msg)+'</div>'+btn('closeVideoSheet()','Fermer',false);
+  return '<div style="position:absolute;inset:0;background:rgba(7,8,7,.72);display:flex;align-items:flex-end;z-index:30" onclick="if(event.target===this&&st.vidSheet.stage!==\'reading\')closeVideoSheet()">'+
+    '<div style="width:100%;background:#161816;border-top:1px solid #26291f;border-radius:26px 26px 0 0;padding:18px 18px 24px">'+
+    '<div style="font:600 19px Barlow;margin-bottom:4px">Vidéo du parcours</div><div style="font:500 12px Barlow;color:#8A8F80;margin-bottom:14px">'+esc(sess.name)+'</div>'+body+'</div></div>'; }
+
 // ---------- graphes ----------
 function gpxBars(sess, coveredM){ const N=26, per=sess.totalDist/N, cur=Math.floor(clamp(coveredM,0,sess.totalDist-1)/per);
   let ele=0; const raw=[]; for(let i=0;i<N;i++){ const d=i*per, s=segAtDist(sess,d); ele+=s.grade/100*per; raw.push(ele); }
@@ -365,6 +501,7 @@ function tick(){
       else { st.spdT=+speed.toFixed(1); }   // cible atteinte : l'app suit la vitesse réelle (bouton physique)
     } else { freeStarted=false; freeReaching=false; }
   }
+  lastTickAt=performance.now();
   if(speed>0){ const m=speed/3.6; st.dist+=m; st.dplus+=(curGrade>0?m*curGrade/100:0); st.elapsed+=1;
     rec.push({t:new Date().toISOString(), dist:st.dist, spd:speed, alt:st.dplus, hr:st.hr||0});
     st.grades.push(curGrade);
@@ -423,7 +560,9 @@ function render(){
   if(s.sheet) html+=viewSheet();
   if(renaming) html+=viewRename();
   if(st.shapePick) html+=viewShape();
-  document.getElementById('app').innerHTML=html;
+  if(st.vidSheet) html+=viewVideoSheet();
+  document.getElementById('ui').innerHTML=html;
+  placeVideo();
 }
 function viewShape(){ const forms=[['boucle','Boucle'],['coeur','Cœur ♥'],['etoile','Étoile ★'],['cercle','Cercle'],['huit','Huit ∞'],['eclair','Éclair']];
   return '<div style="position:absolute;inset:0;background:rgba(7,8,7,.72);display:flex;align-items:flex-end;z-index:30" onclick="if(event.target===this){st.shapePick=null;render()}">'+
@@ -509,11 +648,11 @@ function viewSessions(){ const s=st;
   s.sessions.forEach(x=>{ const gpx=x.type==='gpx', t=gpx?null:totals(x.segments);
     const meta=gpx?((x.totalDist/1000).toFixed(2)+' km · '+x.totalDplus+' m D+ · '+(x.hasTime?'allure du fichier':'pente seule')):(x.segments.length+' blocs · '+fmt(t.dur)+' · '+(t.dist/1000).toFixed(2)+' km · '+t.dp+' m D+');
     const bars=gpx?gpxBars(x,0).map(b=>({h:b.h,color:b.color===ACC?PAST:(b.color===DIM?'#2c3025':PAST)})):intervalBars(x.segments,-1).map(b=>({flex:b.flex,h:b.h,color:'#3c4234'}));
-    const tag='<span style="font:700 9.5px Barlow;letter-spacing:.1em;padding:3px 7px;border-radius:5px;background:'+(gpx?'rgba(203,242,78,.14)':'#23261e')+';color:'+(gpx?ACC:'#8A8F80')+'">'+(gpx?'GPX':'INTERVALLES')+'</span>';
+    const tag='<span style="font:700 9.5px Barlow;letter-spacing:.1em;padding:3px 7px;border-radius:5px;background:'+(gpx?'rgba(203,242,78,.14)':'#23261e')+';color:'+(gpx?ACC:'#8A8F80')+'">'+(gpx?'GPX':'INTERVALLES')+'</span>'+(x.video?'<span style="font:700 9.5px Barlow;letter-spacing:.1em;padding:3px 7px;border-radius:5px;background:rgba(203,242,78,.14);color:'+ACC+'">VIDÉO</span>':'');
     if(selMode.sess){ const onSel=selSet.sess.has(x.id);
       h+='<div onclick="selToggle(\'sess\',\''+x.id+'\')" style="cursor:pointer;background:#191b18;border:1px solid '+(onSel?ACC:'#26291f')+';border-radius:18px;padding:13px 14px;display:flex;align-items:center;gap:10px">'+
         '<span style="font:600 15.5px Barlow;flex:1;min-width:0">'+esc(x.name)+'</span>'+tag+'<span style="font-size:20px;color:'+(onSel?ACC:'#6d7264')+'">'+(onSel?'☑':'☐')+'</span></div>'; return; }
-    const editBtn = gpx? '' : '<button onclick="editSession(\''+x.id+'\')" style="width:48px;background:#23261e;border-radius:12px;padding:11px 0;font:600 12.5px Barlow;color:#C3C8B8">Éditer</button>';
+    const editBtn = gpx? '<button onclick="openVideoSheet(\''+x.id+'\')" style="width:56px;background:#23261e;border-radius:12px;padding:11px 0;font:600 12.5px Barlow;color:'+(x.video?ACC:'#C3C8B8')+'">Vidéo</button>' : '<button onclick="editSession(\''+x.id+'\')" style="width:48px;background:#23261e;border-radius:12px;padding:11px 0;font:600 12.5px Barlow;color:#C3C8B8">Éditer</button>';
     h+='<div style="background:#191b18;border:1px solid #26291f;border-radius:18px;padding:13px 14px">'+
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="font:600 15.5px Barlow;flex:1;min-width:0">'+esc(x.name)+'</span>'+tag+'</div>'+
       '<div style="font:500 12.5px Barlow;color:#8A8F80;margin-bottom:11px">'+meta+'</div>'+
@@ -594,6 +733,7 @@ function viewPlay(){ const s=st, play=s.play; if(!play) return '';
     next=nx?'à venir : pente '+nx.grade.toFixed(1)+' %':'fin du parcours'; pSpd=(play.mode==='gpx'&&seg.spd!=null)?seg.spd.toFixed(1):s.spdT.toFixed(1); pInc=String(Math.round(seg.grade)); }
   let h='<div style="flex:1;display:flex;flex-direction:column">'+
     '<div style="padding:2px 18px 0;display:flex;align-items:baseline;justify-content:space-between"><div style="font:600 16px Barlow">'+esc(sess.name)+'</div><div style="font:600 12.5px Barlow;color:#8A8F80">'+mode+'</div></div>';
+  if(play.type==='gpx' && sess.video) h+=videoSlot(sess);
   if(!play.started) h+='<div style="margin:10px 18px 0;background:rgba(203,242,78,.09);border:1px solid #3d4a1c;border-radius:14px;padding:11px 13px;display:flex;align-items:center;gap:10px">'+
     '<span style="flex:1;font:600 12.5px Barlow;color:#CBF24E;line-height:1.4">Séance chargée · lance la courroie au bouton du tapis</span>'+
     '<button onclick="unloadPlay()" title="Décharger" style="background:transparent;font:500 20px Barlow;color:#CBF24E;line-height:1;padding:0 2px">×</button></div>';
@@ -658,6 +798,8 @@ try{ const u=localStorage.getItem('tm_unit'); if(u) st.mainUnit=u; }catch(e){}
   if(code){ history.replaceState({},'',location.pathname); st.view='history'; stravaExchange(code); }
 })();
 setInterval(tick,1000);
+setInterval(videoSync,250);
+window.addEventListener('resize', placeVideo);
 render();
 loadKnown();
 </script>
