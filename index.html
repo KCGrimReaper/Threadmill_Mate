@@ -447,28 +447,72 @@ function saveVideo(sess, pk, files, v, src, anchors){
   cloudPut('sessions',sess); persist('tm_sessions',st.sessions);
   st.vidSheet={id:sess.id, stage:'done', msg:'', prog:1}; render(); }
 function videoRemove(){ const vs=st.vidSheet, sess=st.sessions.find(x=>x.id===vs.id); if(!sess) return;
-  delete sess.video; delete vidFiles[sess.id]; idbSet('h_'+sess.id, null);
+  dropFromApp(sess); delete sess.video; delete vidFiles[sess.id]; delete vidKept[sess.id]; idbSet('h_'+sess.id, null);
   cloudPut('sessions',sess); persist('tm_sessions',st.sessions); st.vidSheet=null; render(); }
-// au lancement : retrouve les fichiers déjà autorisés (poignées gardées), sinon bouton « Choisir la vidéo » dans la vue course
-async function restoreVideo(sess){ if(vidFiles[sess.id]) return;
-  const hs=await idbGet('h_'+sess.id); if(!hs||!hs.length) return;
-  try{ for(const h of hs){ if(!h.queryPermission || await h.queryPermission({mode:'read'})!=='granted') return; }
-    vidFiles[sess.id]=await Promise.all(hs.map(h=>h.getFile())); render(); }catch(e){} }
-async function videoLoad(){ const play=st.play, sess=play&&play.session; if(!sess||!sess.video) return;
+// ---------- retrouver la vidéo d'une séance sans la rechoisir ----------
+// Ordre : 1) déjà en mémoire ; 2) copie gardée dans l'app (espace privé du navigateur, OPFS : téléphone) ;
+// 3) « dossier des vidéos » choisi une fois sur l'appareil (poignée dans IndexedDB, clé 'dir') : fichier retrouvé
+// par son nom et sa taille, sous-dossiers compris ; 4) fichiers choisis pour cette séance (poignées 'h_<id>').
+// Si le navigateur redemande l'autorisation (nouvelle visite), un seul bouton « Autoriser », jamais de rechoix.
+let vidDir=null, vidNeed={}, vidKept={};   // vidNeed[id] = 'perm' (autorisation à redonner) | 'missing' (introuvable dans le dossier)
+const DIR_API = !!window.showDirectoryPicker, OPFS_API = !!(navigator.storage && navigator.storage.getDirectory);
+idbGet('dir').then(h=>{ vidDir=h; render(); });
+async function findInDir(dir, want, depth){ const out=new Array(want.length).fill(null);
+  const walk=async(d,lvl)=>{ for await (const e of d.values()){
+      if(out.every(Boolean)) return;
+      if(e.kind==='file'){ const k=want.findIndex((w,i)=>!out[i] && w.name.toLowerCase()===e.name.toLowerCase());
+        if(k>=0){ const f=await e.getFile(); if(f.size===want[k].size) out[k]=f; } }
+      else if(lvl<depth) await walk(e,lvl+1); } };
+  await walk(dir,0); return out.every(Boolean)?out:null; }
+async function opfsFiles(sess){ if(!OPFS_API) return null;
+  try{ const root=await navigator.storage.getDirectory(), out=[];
+    for(let i=0;i<sess.video.files.length;i++){ const f=await (await root.getFileHandle('v_'+sess.id+'_'+i)).getFile(); if(f.size!==sess.video.files[i].size) return null; out.push(f); }
+    return out; }catch(e){ return null; } }
+// interactive = appelé par un clic (permet de redemander l'autorisation)
+async function restoreVideo(sess, interactive){ if(!sess.video || vidFiles[sess.id]) return true;
+  const done=f=>{ vidFiles[sess.id]=f; delete vidNeed[sess.id]; render(); return true; };
+  const ok=async h=>{ if(!h.queryPermission) return true; let p=await h.queryPermission({mode:'read'}); if(p!=='granted' && interactive) p=await h.requestPermission({mode:'read'}); return p==='granted'; };
+  const kept=await opfsFiles(sess); if(kept){ vidKept[sess.id]=true; return done(kept); }
+  if(vidDir){ try{ if(await ok(vidDir)){ const f=await findInDir(vidDir, sess.video.files, 3); if(f){ idbSet('h_'+sess.id,null); return done(f); } vidNeed[sess.id]='missing'; }
+      else vidNeed[sess.id]='perm'; }catch(e){ vidNeed[sess.id]='perm'; } }
   const hs=await idbGet('h_'+sess.id);
-  if(hs&&hs.length&&hs[0].requestPermission){
-    try{ let ok=true; for(const h of hs){ if(await h.requestPermission({mode:'read'})!=='granted') ok=false; }
-      if(ok){ vidFiles[sess.id]=await Promise.all(hs.map(h=>h.getFile())); render(); return; } }catch(e){}
-  }
+  if(hs&&hs.length){ try{ let all=true; for(const h of hs) if(!(await ok(h))) all=false;
+      if(all) return done(await Promise.all(hs.map(h=>h.getFile())));
+      if(!vidNeed[sess.id]) vidNeed[sess.id]='perm'; }catch(e){} }
+  render(); return false; }
+async function chooseVideoDir(){ try{ const h=await showDirectoryPicker({id:'tm-videos', mode:'read'}); vidDir=h; await idbSet('dir',h);
+    vidNeed={}; st.vidMsg=''; if(st.play&&st.play.session) await restoreVideo(st.play.session, true); render(); }catch(e){} }
+async function videoLoad(){ const sess=st.play&&st.play.session; if(!sess||!sess.video) return;
+  if(await restoreVideo(sess, true)) return;
   let pk=await pickVideos(); if(!pk) return; pk=sortPicked(pk);
   const want=sess.video.files;
   if(pk.files.length!==want.length || pk.files.some((f,i)=>f.size!==want[i].size)){ st.vidMsg='Ce ne sont pas les fichiers de cette vidéo ('+want.map(f=>f.name).join(', ')+').'; render(); return; }
-  st.vidMsg=''; vidFiles[sess.id]=pk.files; if(pk.handles) idbSet('h_'+sess.id, pk.handles); render(); }
+  st.vidMsg=''; delete vidNeed[sess.id]; vidFiles[sess.id]=pk.files; if(pk.handles) idbSet('h_'+sess.id, pk.handles); render(); }
+// téléphone : copie de la vidéo dans l'espace de l'app (une fois), relue ensuite sans rien choisir
+async function keepInApp(id){ const sess=st.sessions.find(x=>x.id===id), files=vidFiles[id]; if(!sess||!files||!OPFS_API) return;
+  try{ if(navigator.storage.persist) await navigator.storage.persist();
+    const root=await navigator.storage.getDirectory(), tot=files.reduce((a,f)=>a+f.size,0); let doneB=0;
+    st.keepProg={id, p:0}; render();
+    for(let i=0;i<files.length;i++){ const w=await (await root.getFileHandle('v_'+id+'_'+i,{create:true})).createWritable();
+      const rd=files[i].stream().getReader();
+      for(;;){ const {done,value}=await rd.read(); if(done) break; await w.write(value); doneB+=value.length; st.keepProg.p=doneB/tot; if(Math.random()<0.02) render(); }
+      await w.close(); }
+    st.keepProg=null; st.vidMsg=''; vidKept[id]=true; render(); }
+  catch(e){ st.keepProg=null; st.vidMsg='Copie impossible : '+(e.name==='QuotaExceededError'?'pas assez de place sur l\'appareil':e.message); render(); } }
+async function dropFromApp(sess){ if(!OPFS_API||!sess.video) return; const id=sess.id, n=sess.video.files.length;   // n lu tout de suite : la séance perd sa vidéo juste après
+  try{ const root=await navigator.storage.getDirectory(); for(let i=0;i<n;i++) await root.removeEntry('v_'+id+'_'+i).catch(()=>{}); }catch(e){} }
 function videoSlot(sess){
   if(vidFiles[sess.id]) return '<div id="vslot" style="margin:10px 18px 0;aspect-ratio:16/9"></div>';
-  const names=sess.video.files.map(f=>esc(f.name)).join(', ');
-  return '<button onclick="videoLoad()" style="margin:10px 18px 0;background:#191b18;border:1px dashed #3a3f33;border-radius:16px;padding:14px;text-align:left;font:600 13px Barlow;color:#C3C8B8;line-height:1.4">Vidéo : choisir '+names+'<br><span style="font:500 12px Barlow;color:#6d7264">les fichiers restent sur cet appareil</span></button>'+
-    (st.vidMsg?'<div style="margin:6px 18px 0;font:500 12px Barlow;color:#FF7A6B">'+esc(st.vidMsg)+'</div>':''); }
+  const names=sess.video.files.map(f=>esc(f.name)).join(', '), need=vidNeed[sess.id];
+  const card=(on,title,sub,acc)=>'<button onclick="'+on+'" style="margin:10px 18px 0;background:'+(acc?'rgba(203,242,78,.09)':'#191b18')+';border:1px '+(acc?'solid #3d4a1c':'dashed #3a3f33')+';border-radius:16px;padding:14px;text-align:left;font:600 13px Barlow;color:'+(acc?ACC:'#C3C8B8')+';line-height:1.4">'+title+'<br><span style="font:500 12px Barlow;color:#8A8F80">'+sub+'</span></button>';
+  let h='';
+  if(vidDir && need==='perm') h=card('videoLoad()','Autoriser l\'accès au dossier « '+esc(vidDir.name)+' »','la vidéo '+names+' y sera retrouvée toute seule',1);
+  else if(vidDir && need==='missing') h=card('videoLoad()','Vidéo '+names+' introuvable dans « '+esc(vidDir.name)+' »','choisir le fichier (ou ranger la vidéo dans ce dossier)')+
+    (DIR_API?card('chooseVideoDir()','Changer de dossier des vidéos','sous-dossiers compris'):'');
+  else if(DIR_API && !vidDir) h=card('chooseVideoDir()','Choisir le dossier de tes vidéos (une seule fois)','toutes les vidéos de tes séances y seront retrouvées toutes seules',1)+
+    card('videoLoad()','Ou choisir seulement '+names,'');
+  else h=card('videoLoad()','Vidéo : choisir '+names,OPFS_API?'puis « Garder dans l\'app » pour ne plus avoir à la choisir':'');
+  return h+(st.vidMsg?'<div style="margin:6px 18px 0;font:500 12px Barlow;color:#FF7A6B">'+esc(st.vidMsg)+'</div>':''); }
 function toggleGpxPace(){ const p=st.play; if(!p||p.type!=='gpx') return; p.mode=p.mode==='gpx'?'free':'gpx'; render(); }
 function toggleVideoFull(){ st.vfull=!st.vfull; render(); }
 // pose la vidéo (élément permanent, hors du rendu) sur son emplacement, ou en plein écran avec les chiffres par-dessus
@@ -575,6 +619,10 @@ function videoSync(){ const v=document.getElementById('tmv'), play=st.play, sess
   const base=at.vs>0.3 ? (st.speed/3.6)/at.vs : 1;
   v.playbackRate=clamp(base*(1+clamp(drift*0.25,-0.5,0.5)),0.2,6);
   if(v.paused) v.play().catch(()=>{}); }
+function dirLine(){ if(!DIR_API) return '';
+  return '<div style="display:flex;align-items:center;gap:10px;background:#191b18;border:1px solid #26291f;border-radius:12px;padding:10px 12px;margin-top:10px">'+
+    '<div style="flex:1;font:500 12.5px Barlow;color:#C3C8B8;line-height:1.4">'+(vidDir?'Dossier des vidéos : <b>'+esc(vidDir.name)+'</b><br><span style="color:#8A8F80">les vidéos y sont retrouvées toutes seules sur cet ordinateur</span>':'Choisis le dossier où sont tes vidéos : sur les autres séances et à chaque lancement, elles y seront retrouvées toutes seules.')+'</div>'+
+    '<button onclick="chooseVideoDir()" style="background:'+(vidDir?'#23261e':ACC)+';border-radius:10px;padding:9px 12px;font:600 12.5px Barlow;color:'+(vidDir?'#C3C8B8':'#14170a')+'">'+(vidDir?'Changer':'Choisir')+'</button></div>'; }
 function viewVideoSheet(){ const vs=st.vidSheet, sess=st.sessions.find(x=>x.id===vs.id); if(!sess) return '';
   const btn=(on,label,primary)=>'<button onclick="'+on+'" style="width:100%;background:'+(primary?ACC:'#23261e')+';border-radius:14px;padding:14px;font:600 14px Barlow;color:'+(primary?'#14170a':'#C3C8B8')+';margin-top:8px">'+label+'</button>';
   const txt=t=>'<div style="font:500 13px Barlow;color:#C3C8B8;line-height:1.5;margin-bottom:6px">'+t+'</div>';
@@ -584,13 +632,13 @@ function viewVideoSheet(){ const vs=st.vidSheet, sess=st.sessions.find(x=>x.id==
   if(vs.stage==='start'){
     if(sess.video){ const v=sess.video;
       body=txt('Vidéo : <b>'+v.files.map(f=>esc(f.name)).join(', ')+'</b>')+txt(how(v))+
-        btn('syncAdjust()','Ajuster la synchronisation',false)+btn('videoAssociate()','Choisir une autre vidéo',false)+btn('videoRemove()','Retirer la vidéo',false);
+        btn('syncAdjust()','Ajuster la synchronisation',false)+btn('videoAssociate()','Choisir une autre vidéo',false)+btn('videoRemove()','Retirer la vidéo',false)+dirLine();
     } else body=txt('Ajoute la vidéo filmée sur ce parcours (une longue sortie est coupée en plusieurs fichiers GoPro : prends-les tous).')+
       txt('Avec le GPS de la GoPro, la vidéo se cale toute seule sur le tracé. Sans GPS, tu la synchronises en deux repères. Les fichiers restent sur cet appareil.')+
       btn('videoAssociate()','Choisir les fichiers vidéo',true);
   } else if(vs.stage==='reading') body=txt('Lecture du GPS de la vidéo… '+Math.round(vs.prog*100)+' %')+
     '<div style="height:4px;background:#23261e;border-radius:2px;margin-top:8px"><div style="height:4px;background:'+ACC+';border-radius:2px;width:'+Math.round(vs.prog*100)+'%"></div></div>';
-  else if(vs.stage==='done') body=txt(how(sess.video))+txt('Lance la séance : la vidéo défile à ta vitesse. Touche-la pour le plein écran et son tableau de bord.')+btn('closeVideoSheet()','OK',true);
+  else if(vs.stage==='done') body=txt(how(sess.video))+txt('Lance la séance : la vidéo défile à ta vitesse. Touche-la pour le plein écran et son tableau de bord.')+dirLine()+btn('closeVideoSheet()','OK',true);
   else if(vs.stage==='sync'){ title='Synchronisation';
     const step=(d,l)=>'<button onclick="syncSeek(st.vidSheet.T+('+d+'))" style="flex:1;background:#23261e;border-radius:10px;padding:9px 0;font:600 12.5px Barlow;color:#C3C8B8">'+l+'</button>';
     const mark=(k,l)=>'<button onclick="syncMark(\''+k+'\')" style="background:#23261e;border:1px solid #2e3227;border-radius:12px;padding:10px;text-align:left"><div style="font:600 12.5px Barlow;color:#C3C8B8">'+l+'</div><div id="sync'+k+'" style="font:600 22px \'Barlow Condensed\';color:'+ACC+'">'+fmt(vs['t'+k])+'</div></button>';
@@ -874,7 +922,10 @@ function viewPlay(){ const s=st, play=s.play; if(!play) return '';
     next=nx?'à venir : pente '+nx.grade.toFixed(1)+' %':'fin du parcours'; pSpd=(play.mode==='gpx'&&seg.spd!=null)?seg.spd.toFixed(1):s.spdT.toFixed(1); pInc=String(Math.round(seg.grade)); }
   let h='<div style="flex:1;display:flex;flex-direction:column">'+
     '<div style="padding:2px 18px 0;display:flex;align-items:baseline;justify-content:space-between"><div style="font:600 16px Barlow">'+esc(sess.name)+'</div>'+modeHtml+'</div>';
-  if(play.type==='gpx' && sess.video) h+=videoSlot(sess);
+  if(play.type==='gpx' && sess.video){ h+=videoSlot(sess);
+    if(vidFiles[sess.id] && !DIR_API && OPFS_API && !vidKept[sess.id]){ const go=(sess.video.files.reduce((a,f)=>a+f.size,0)/1e9).toFixed(1);
+      h+= st.keepProg&&st.keepProg.id===sess.id ? '<div style="margin:8px 18px 0;font:600 12.5px Barlow;color:#C3C8B8">Copie dans l\'app… '+Math.round(st.keepProg.p*100)+' %</div>'
+        : '<button onclick="keepInApp(\''+sess.id+'\')" style="margin:8px 18px 0;background:#191b18;border:1px solid #26291f;border-radius:12px;padding:10px;font:600 12.5px Barlow;color:#C3C8B8">Garder la vidéo dans l\'app ('+go+' Go) : plus besoin de la choisir</button>'; } }
   if(!play.started) h+='<div style="margin:10px 18px 0;background:rgba(203,242,78,.09);border:1px solid #3d4a1c;border-radius:14px;padding:11px 13px;display:flex;align-items:center;gap:10px">'+
     '<span style="flex:1;font:600 12.5px Barlow;color:#CBF24E;line-height:1.4">Séance chargée · lance la courroie au bouton du tapis</span>'+
     '<button onclick="unloadPlay()" title="Décharger" style="background:transparent;font:500 20px Barlow;color:#CBF24E;line-height:1;padding:0 2px">×</button></div>'+
