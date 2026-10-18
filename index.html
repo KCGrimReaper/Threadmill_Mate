@@ -20,6 +20,7 @@
 <body>
 <div id="app"></div>
 <input type="file" id="gpxFile" accept=".gpx" style="display:none">
+<script src="firebase-config.js"></script>
 <script>
 const FTMS=0x1826, DATA=0x2acd, CONTROL=0x2ad9, SPD_RANGE=0x2ad4, INC_RANGE=0x2ad5;
 const HR_SVC=0x180d, HR_MEAS=0x2a37, SENT=0x7fff, GPX_SEG=50;
@@ -28,7 +29,7 @@ const STEP=0.1;
 
 let st={ view:'drive', connected:false, hrOn:false, speed:0, incReal:0, mainUnit:'kmh', dist:0, dplus:0, elapsed:0, hr:0,
   spdT:9.5, incT:4, grades:[], speeds:[], sessions:[], history:[], strava:null, pubId:null, shapePick:null, draft:null, buildErr:'', msg:'', msgColor:'#8A8F80',
-  play:null, sheet:false };
+  play:null, sheet:false, cloud:window.TM_FIREBASE_CONFIG?'syncing':'off', cloudInfo:'', user:null };
 let spdMin=1, spdMax=18, incMin=0, incMax=15;
 let device=null, controlChar=null, hrDevice=null, wakeLock=null;
 let rec=[], activeRoute=null, gattQueue=Promise.resolve(), lastTs=0, curGrade=0;
@@ -82,7 +83,7 @@ function subMetrics(){ const m=metrics(st.speed, st.incReal), u=st.mainUnit, p=[
   if(u!=='minkm') p.push(fmtPace(m.minkm)+' /km');
   if(u!=='vkt') p.push(m.vkt.toFixed(1)+' km-e/h');
   return p.join('  ·  '); }
-function cycleUnit(){ const o=['kmh','minkm','vkt'], i=o.indexOf(st.mainUnit); st.mainUnit=o[(i+1)%3]; try{localStorage.setItem('tm_unit',st.mainUnit);}catch(e){} render(); }
+function cycleUnit(){ const o=['kmh','minkm','vkt'], i=o.indexOf(st.mainUnit); st.mainUnit=o[(i+1)%3]; try{localStorage.setItem('tm_unit',st.mainUnit);}catch(e){} settingsChanged(); render(); }
 function paces(sp, dist, dplus){ return subMetrics(); }
 async function reconnectTm(){ if(knownTm){ try{ await setupTreadmill(knownTm); }catch(e){} } }
 function disconnect(){ if(device&&device.gatt.connected) device.gatt.disconnect(); st.connected=false; render(); }
@@ -137,8 +138,8 @@ function saveSession(){ const d=st.draft;
   if(!(d.name||'').trim()){ st.buildErr='Donne un nom à la séance.'; render(); return; }
   if(!d.segments.length){ st.buildErr='Ajoute au moins un bloc.'; render(); return; }
   const arr=st.sessions.slice(); const i=arr.findIndex(x=>x.id===d.id); if(i>=0) arr[i]=d; else arr.push(d);
-  persist('tm_sessions',arr); st.sessions=arr; st.view='sessions'; st.draft=null; st.msg='Séance enregistrée.'; st.msgColor=ACC; render(); }
-function delSession(id){ st.sessions=st.sessions.filter(x=>x.id!==id); persist('tm_sessions',st.sessions); render(); }
+  cloudPut('sessions',d); persist('tm_sessions',arr); st.sessions=arr; st.view='sessions'; st.draft=null; st.msg='Séance enregistrée.'; st.msgColor=ACC; render(); }
+function delSession(id){ st.sessions=st.sessions.filter(x=>x.id!==id); persist('tm_sessions',st.sessions); cloudDel('sessions',id); render(); }
 function mutDraft(fn){ fn(st.draft); render(); }
 function segEdit(i,field,val){ const d=st.draft;
   if(field==='name') d.segments[i].name=val;
@@ -173,20 +174,21 @@ function archiveRun(){
   if(s[s.length-1]!==last) s.push(last);
   const entry={id:'r'+Date.now(), date:first.t, name:st.play?st.play.session.name:'', dist:Math.round(last.dist),
     dplus:Math.round(last.alt), dur:Math.round((new Date(last.t)-new Date(first.t))/1000), route:activeRoute||null, samples:s};
-  const arr=[entry].concat(st.history).slice(0,50); persist('tm_history',arr); st.history=arr; rec=[]; }
+  cloudPut('history',entry); const arr=[entry].concat(st.history).slice(0,50); persist('tm_history',arr); st.history=arr; rec=[]; }
 function finishRun(){ archiveRun(); st.view='history'; st.dist=0; st.dplus=0; st.elapsed=0; st.grades=[]; render(); }
-function delHist(id){ st.history=st.history.filter(x=>x.id!==id); persist('tm_history',st.history); render(); }
+function delHist(id){ st.history=st.history.filter(x=>x.id!==id); persist('tm_history',st.history); cloudDel('history',id); render(); }
 function toggleSelMode(k){ selMode[k]=!selMode[k]; selSet[k].clear(); render(); }
 function selToggle(k,id){ const s=selSet[k]; if(s.has(id)) s.delete(id); else s.add(id); render(); }
 function bulkDelete(k){ const s=selSet[k]; if(!s.size) return;
+  s.forEach(id=>cloudDel(k==='hist'?'history':'sessions',id));
   if(k==='hist'){ st.history=st.history.filter(x=>!s.has(x.id)); persist('tm_history',st.history); }
   else { st.sessions=st.sessions.filter(x=>!s.has(x.id)); persist('tm_sessions',st.sessions); }
   s.clear(); selMode[k]=false; render(); }
 function openRename(kind,id){ renaming={kind,id}; render(); setTimeout(()=>{ const el=document.getElementById('renameInput'); if(el){ el.focus(); el.select(); } },30); }
 function closeRename(){ renaming=null; render(); }
 function doRename(){ if(!renaming) return; const v=(document.getElementById('renameInput').value||'').trim();
-  if(renaming.kind==='sess'){ const x=st.sessions.find(y=>y.id===renaming.id); if(x&&v){ x.name=v; persist('tm_sessions',st.sessions); } }
-  else { const x=st.history.find(y=>y.id===renaming.id); if(x){ x.name=v; persist('tm_history',st.history); } }
+  if(renaming.kind==='sess'){ const x=st.sessions.find(y=>y.id===renaming.id); if(x&&v){ x.name=v; cloudPut('sessions',x); persist('tm_sessions',st.sessions); } }
+  else { const x=st.history.find(y=>y.id===renaming.id); if(x){ x.name=v; cloudPut('history',x); persist('tm_history',st.history); } }
   renaming=null; render(); }
 function dl(blob,name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000); }
 function fname(ext){ const d=new Date(), p=n=>String(n).padStart(2,'0'); return 'threadmill-'+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'-'+p(d.getHours())+p(d.getMinutes())+'.'+ext; }
@@ -196,11 +198,11 @@ function histFit(id){ const h=st.history.find(x=>x.id===id); if(!h) return;
 function doFit(id,shape){ const h=st.history.find(x=>x.id===id); if(!h) return; const b=buildFit(h.samples,h.route,shape); if(b) dl(new Blob([b],{type:'application/octet-stream'}), fname('fit')); }
 const STRAVA_FN='/.netlify/functions/strava';
 function loadStrava(){ try{ return JSON.parse(localStorage.getItem('tm_strava')||'null'); }catch(e){ return null; } }
-function saveStrava(t){ try{ localStorage.setItem('tm_strava', JSON.stringify(t)); }catch(e){} st.strava=t; }
+function saveStrava(t){ try{ localStorage.setItem('tm_strava', JSON.stringify(t)); }catch(e){} st.strava=t; settingsChanged(); }
 // Domaine de rappel de l'app Strava (partagée avec Trail Planner Pro) : trailplannerpro.com, dont le relais renvoie ici (state « tm »)
 function stravaConnect(){ const redirect='https://trailplannerpro.com/strava-relay/';
   location.href='https://www.strava.com/oauth/authorize?client_id=277538&response_type=code&redirect_uri='+encodeURIComponent(redirect)+'&approval_prompt=auto&scope=activity:write&state=tm'; }
-function stravaLogout(){ localStorage.removeItem('tm_strava'); st.strava=null; render(); }
+function stravaLogout(){ localStorage.removeItem('tm_strava'); st.strava=null; settingsChanged(); render(); }
 async function stravaExchange(code){
   try{ const r=await fetch(STRAVA_FN,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'exchange',code})});
     const j=await r.json();
@@ -301,10 +303,40 @@ async function onGpx(e){ const file=e.target.files&&e.target.files[0]; if(!file)
     if(!nm) nm=file.name.replace(/\.gpx$/i,'');
     const sess={id:'g'+Date.now(), type:'gpx', name:nm, hasTime, totalDist:Math.round(cum), totalDplus:Math.round(dplus), segs,
       track:pts.map(p=>({d:+p.d.toFixed(1),lat:p.lat,lon:p.lon,ele:+p.ele.toFixed(1)}))};
-    st.sessions=st.sessions.concat([sess]); persist('tm_sessions',st.sessions);
+    cloudPut('sessions',sess); st.sessions=st.sessions.concat([sess]); persist('tm_sessions',st.sessions);
     st.msg='Importé : '+(cum/1000).toFixed(2)+' km · '+Math.round(dplus)+' m D+'+(hasTime?' · allure incluse':' · profil seul'); st.msgColor=ACC; render();
   }catch(err){ st.msg='GPX : '+err.message; st.msgColor='#FF7A6B'; render(); }
   e.target.value=''; }
+
+// ---------- synchro cloud (cloud.js) ----------
+// Les données restent en localStorage ; cloud.js recopie dans Firestore et applique les changements des autres appareils.
+const LS_KEY={sessions:'tm_sessions', history:'tm_history'};
+function cloudPut(kind,item){ item.u=Date.now(); if(window.TMCloud) TMCloud.put(kind,item); }
+function cloudDel(kind,id){ if(window.TMCloud) TMCloud.del(kind,id); }
+function settingsU(){ return parseInt(localStorage.getItem('tm_settings_u')||'0',10)||0; }
+function settingsChanged(){ try{ localStorage.setItem('tm_settings_u', String(Date.now())); }catch(e){} if(window.TMCloud) TMCloud.putSettings(); }
+function softRender(){ if(st.view==='build'||renaming) return; render(); }   // ne pas casser une saisie en cours
+function cloudLogin(){ if(window.TMCloud){ st.cloudInfo=''; TMCloud.login(); } }
+function cloudLogout(){ if(window.TMCloud) TMCloud.logout(); }
+window.tmApp={
+  localList:k=>st[k],
+  localItem:(k,id)=>st[k].find(x=>x.id===id),
+  // historique local limité à 50 courses : inutile de télécharger les plus anciennes
+  wants:(k,d)=> k!=='history' || st.history.length<50 || !d.date || new Date(d.date)>new Date(st.history[49].date),
+  apply(k,item){ const arr=st[k].slice(), i=arr.findIndex(x=>x.id===item.id); if(i>=0) arr[i]=item; else arr.push(item);
+    if(k==='history') arr.sort((a,b)=>new Date(b.date)-new Date(a.date));
+    st[k]=k==='history'?arr.slice(0,50):arr; persist(LS_KEY[k],st[k]); softRender(); },
+  remove(k,id){ st[k]=st[k].filter(x=>x.id!==id); persist(LS_KEY[k],st[k]); softRender(); },
+  settings:()=>({unit:st.mainUnit, strava:st.strava||null, u:settingsU()}),
+  applySettings(d){ if(d.unit) st.mainUnit=d.unit; st.strava=d.strava||null;
+    try{ localStorage.setItem('tm_unit',st.mainUnit); if(st.strava) localStorage.setItem('tm_strava',JSON.stringify(st.strava)); else localStorage.removeItem('tm_strava'); localStorage.setItem('tm_settings_u',String(d.u||0)); }catch(e){}
+    softRender(); },
+  switchUser(uid){ const last=localStorage.getItem('tm_cloud_uid');
+    if(last && last!==uid){ st.sessions=[]; st.history=[]; st.strava=null; ['tm_sessions','tm_history','tm_strava','tm_settings_u'].forEach(k=>localStorage.removeItem(k)); }
+    try{ localStorage.setItem('tm_cloud_uid',uid); }catch(e){} },
+  setUser(u){ st.user=u; softRender(); },
+  cloudState(state,info){ st.cloud=state; if(info!=null) st.cloudInfo=info; else if(state!=='error') st.cloudInfo=''; softRender(); }
+};
 
 // ---------- graphes ----------
 function gpxBars(sess, coveredM){ const N=26, per=sess.totalDist/N, cur=Math.floor(clamp(coveredM,0,sess.totalDist-1)/per);
@@ -467,6 +499,7 @@ function viewSessions(){ const s=st;
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><button onclick="newSession()" style="background:#CBF24E;border-radius:14px;padding:13px;font:600 14px Barlow;color:#14170a">+ Intervalles</button>'+
     '<button onclick="document.getElementById(\'gpxFile\').click()" style="background:#191b18;border:1px solid #26291f;border-radius:14px;padding:13px;font:600 14px Barlow;color:#C3C8B8">Importer un GPX</button></div>';
   if(s.msg) h+='<div style="font:500 12.5px Barlow;color:'+s.msgColor+';line-height:1.4">'+esc(s.msg)+'</div>';
+  if(s.cloud==='out') h+='<button onclick="openSheet()" style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:#191b18;border:1px solid #26291f;border-radius:14px;padding:11px 13px;font:600 12.5px Barlow;color:#C3C8B8;text-align:left">Connecte-toi pour retrouver tes séances sur tous tes appareils<span style="color:#CBF24E;font-size:17px">→</span></button>';
   if(s.sessions.length) h+=selBar('sess');
   if(!s.sessions.length) h+='<div style="border:1px dashed #2e3227;border-radius:18px;padding:28px 20px;text-align:center;font:500 13.5px Barlow;color:#6d7264;line-height:1.5">Aucune séance.<br>Crée une séance à intervalles ou importe un GPX pour courir un vrai profil.</div>';
   s.sessions.forEach(x=>{ const gpx=x.type==='gpx', t=gpx?null:totals(x.segments);
@@ -579,6 +612,21 @@ function viewPlay(){ const s=st, play=s.play; if(!play) return '';
     '<button onclick="doStop()" style="background:transparent;border:1px solid #4a2f2b;border-radius:16px;padding:15px;font:600 15px Barlow;color:#FF7A6B">Terminer</button></div></div>';
   return h; }
 
+function cloudRow(){ const s=st;
+  const dot={ok:ACC, syncing:'#E8C547', error:'#FF7A6B'}[s.cloud]||'#4c5142';
+  const sub = s.cloud==='off' ? 'Non configurée (firebase-config.js)'
+    : s.cloud==='out' ? 'Retrouve séances et historique sur tous tes appareils'
+    : s.cloud==='syncing' ? 'Synchronisation…'
+    : s.cloud==='ok' ? 'Synchronisé'+(s.user&&s.user.email?' · '+esc(s.user.email):'')
+    : 'Erreur de synchro';
+  const btn = s.cloud==='off' ? '' : s.user
+    ? '<button onclick="cloudLogout()" style="background:#23261e;border-radius:11px;padding:10px 14px;font:600 13px Barlow;color:#FF7A6B">Déconnexion</button>'
+    : '<button onclick="cloudLogin()" style="background:'+ACC+';border-radius:11px;padding:10px 14px;font:600 13px Barlow;color:#14170a">Se connecter</button>';
+  return '<div style="background:#191b18;border:1px solid #26291f;border-radius:16px;padding:13px 14px;margin-bottom:14px">'+
+    '<div style="display:flex;align-items:center;gap:12px">'+
+    '<span style="width:9px;height:9px;border-radius:99px;background:'+dot+'"></span>'+
+    '<div style="flex:1;min-width:0"><div style="font:600 14.5px Barlow">Compte · synchro</div><div style="font:500 12px Barlow;color:#8A8F80;overflow:hidden;text-overflow:ellipsis">'+sub+'</div></div>'+btn+'</div>'+
+    (s.cloudInfo?'<div style="font:500 12px Barlow;color:#FF7A6B;line-height:1.4;margin-top:9px">'+esc(s.cloudInfo)+'</div>':'')+'</div>'; }
 function viewSheet(){ const s=st, hrLive=s.hrOn&&s.hr>=0;
   return '<div style="position:absolute;inset:0;background:rgba(7,8,7,.72);display:flex;align-items:flex-end;z-index:20" onclick="if(event.target===this)closeSheet()">'+
     '<div style="width:100%;background:#161816;border-top:1px solid #26291f;border-radius:26px 26px 0 0;padding:18px 18px 24px">'+
@@ -595,6 +643,7 @@ function viewSheet(){ const s=st, hrLive=s.hrOn&&s.hr>=0;
     '<span style="width:9px;height:9px;border-radius:99px;background:'+(s.strava?'#fc5200':'#4c5142')+'"></span>'+
     '<div style="flex:1;min-width:0"><div style="font:600 14.5px Barlow">Strava</div><div style="font:500 12px Barlow;color:#8A8F80">'+(s.strava?('Connecté'+(s.strava.athlete&&s.strava.athlete.firstname?' · '+esc(s.strava.athlete.firstname):'')):'Publier tes courses automatiquement')+'</div></div>'+
     '<button onclick="'+(s.strava?'stravaLogout()':'stravaConnect()')+'" style="background:'+(s.strava?'#23261e':'#fc5200')+';border-radius:11px;padding:10px 14px;font:600 13px Barlow;color:'+(s.strava?'#FF7A6B':'#fff')+'">'+(s.strava?'Délier':'Connecter')+'</button></div>'+
+    cloudRow()+
     '<div style="font:500 12px Barlow;color:#6d7264;line-height:1.5">Le démarrage de la courroie reste sur le bouton physique du tapis. L\'app pilote l\'allure et la pente, et enregistre la course.</div></div></div>'; }
 
 document.addEventListener('visibilitychange', async ()=>{ if(document.visibilityState==='visible' && st.connected){ try{ if('wakeLock' in navigator) wakeLock=await navigator.wakeLock.request('screen'); }catch(e){} } });
@@ -608,5 +657,6 @@ setInterval(tick,1000);
 render();
 loadKnown();
 </script>
+<script type="module" src="cloud.js"></script>
 </body>
 </html>

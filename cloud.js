@@ -1,0 +1,128 @@
+// Synchronisation Firebase : compte Google + Firestore, « local d'abord ».
+// L'app fonctionne toujours sur ses données locales (localStorage) ; ce module recopie
+// chaque modification dans Firestore et applique celles venues des autres appareils.
+// Données (une seule zone par utilisateur, protégée par firestore.rules) :
+//   users/{uid}                       réglages { unit, strava, u }
+//   users/{uid}/items/{kind}_{id}     une séance ou une course { kind, id, u, data | chunks, del? }
+//   users/{uid}/chunks/{kind}_{id}_{u}_{n}  morceaux des gros éléments (GPX longs), limite Firestore 1 Mo / document
+// Chaque élément porte `u` (horodatage de sa dernière modification) : le plus récent gagne.
+// Une suppression laisse une pierre tombale { del: true } pour ne pas ressusciter l'élément ailleurs.
+const V = '10.12.2', BASE = 'https://www.gstatic.com/firebasejs/' + V + '/';
+const CH = 700000;            // caractères par document (marge sous 1 Mo)
+const KINDS = ['sessions', 'history'];
+const cfg = window.TM_FIREBASE_CONFIG;
+const app = window.tmApp;     // passerelle exposée par index.html
+
+if (!cfg || !cfg.apiKey) app.cloudState('off');
+else start().catch(e => { console.error('[cloud]', e); app.cloudState('error', String(e && e.message || e)); });
+
+async function start() {
+  const libs = window.__tmFirebaseLibs || await Promise.all([
+    import(BASE + 'firebase-app.js'), import(BASE + 'firebase-auth.js'), import(BASE + 'firebase-firestore.js')]);
+  const [{ initializeApp }, A, F] = libs;
+  const fb = initializeApp(cfg);
+  const auth = A.getAuth(fb);
+  let db;
+  try { db = F.initializeFirestore(fb, { localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }) }); }
+  catch (e) { db = F.getFirestore(fb); }
+
+  let uid = null, meta = {}, unsub = [], merged = false, settingsMerged = false;
+  const itemRef = key => F.doc(db, 'users', uid, 'items', key);
+  const chunkRef = (key, u, i) => F.doc(db, 'users', uid, 'chunks', key + '_' + u + '_' + i);
+  const fail = e => { console.error('[cloud]', e); app.cloudState('error', String(e && e.message || e)); };
+
+  async function put(kind, item) {
+    if (!uid) return;
+    const key = kind + '_' + item.id, u = item.u || 1, json = JSON.stringify(item);
+    const n = json.length > CH ? Math.ceil(json.length / CH) : 0, old = meta[key];
+    const b = F.writeBatch(db);
+    for (let i = 0; i < n; i++) b.set(chunkRef(key, u, i), { d: json.slice(i * CH, (i + 1) * CH) });
+    const head = { kind, id: item.id, u };
+    if (item.date) head.date = item.date;
+    b.set(itemRef(key), n ? Object.assign(head, { chunks: n }) : Object.assign(head, { data: json }));
+    if (old && old.chunks && old.u !== u) for (let i = 0; i < old.chunks; i++) b.delete(chunkRef(key, old.u, i));
+    meta[key] = { u, chunks: n };
+    return b.commit().catch(fail);
+  }
+  async function del(kind, id) {
+    if (!uid) return;
+    const key = kind + '_' + id, u = Date.now(), old = meta[key];
+    const b = F.writeBatch(db);
+    b.set(itemRef(key), { kind, id, u, del: true });
+    if (old && old.chunks) for (let i = 0; i < old.chunks; i++) b.delete(chunkRef(key, old.u, i));
+    meta[key] = { u, del: true };
+    return b.commit().catch(fail);
+  }
+  function putSettings() {
+    if (!uid) return;
+    const st = app.settings(); st.u = st.u || 1;   // réglages d'avant la synchro (u = 0) : envoyés quand même
+    return F.setDoc(F.doc(db, 'users', uid), st).catch(fail);
+  }
+  async function readItem(key, d) {
+    if (d.data) return JSON.parse(d.data);
+    let json = '';
+    for (let i = 0; i < d.chunks; i++) {
+      const c = await F.getDoc(chunkRef(key, d.u, i));
+      if (!c.exists()) return null;   // morceaux pas encore arrivés : la prochaine notification les apportera
+      json += c.data().d;
+    }
+    return JSON.parse(json);
+  }
+
+  async function onItems(snap) {
+    for (const ch of snap.docChanges()) {
+      const key = ch.doc.id, d = ch.doc.data();
+      if (ch.type === 'removed') { delete meta[key]; continue; }
+      if (!KINDS.includes(d.kind)) continue;
+      meta[key] = { u: d.u, chunks: d.chunks || 0, del: !!d.del };
+      const loc = app.localItem(d.kind, d.id), lu = loc ? (loc.u || 0) : -1;
+      if (d.del) { if (loc && lu <= d.u) app.remove(d.kind, d.id); continue; }
+      if (d.u > lu && app.wants(d.kind, d)) {
+        try { const item = await readItem(key, d); if (item) app.apply(d.kind, item); } catch (e) { fail(e); }
+      }
+    }
+    // première réponse du serveur : envoie ce que l'appareil a de plus récent (ou n'a jamais envoyé)
+    if (!merged && !snap.metadata.fromCache) {
+      merged = true;
+      KINDS.forEach(kind => app.localList(kind).forEach(it => {
+        const m = meta[kind + '_' + it.id];
+        if (!m || (it.u || 0) > m.u) put(kind, it);
+      }));
+      app.cloudState('ok');
+    }
+  }
+  function onSettings(snap) {
+    const d = snap.exists() ? snap.data() : null, lu = app.settings().u || 0;
+    if (d && (d.u || 0) > lu) app.applySettings(d);
+    if (!settingsMerged && !snap.metadata.fromCache) {
+      settingsMerged = true;
+      if (!d || lu > (d.u || 0)) putSettings();
+    }
+  }
+
+  A.onAuthStateChanged(auth, user => {
+    unsub.forEach(f => f()); unsub = []; meta = {}; merged = false; settingsMerged = false;
+    uid = user ? user.uid : null;
+    if (!user) { app.cloudState('out'); app.setUser(null); return; }
+    app.switchUser(user.uid);   // autre compte que la dernière fois : on repart d'un appareil vide
+    app.setUser({ name: user.displayName || '', email: user.email || '' });
+    app.cloudState('syncing');
+    unsub.push(F.onSnapshot(F.collection(db, 'users', uid, 'items'), { includeMetadataChanges: true }, onItems, fail));
+    unsub.push(F.onSnapshot(F.doc(db, 'users', uid), { includeMetadataChanges: true }, onSettings, fail));
+  });
+
+  window.TMCloud = {
+    put, del, putSettings,
+    async login() {
+      const p = new A.GoogleAuthProvider();
+      try { await A.signInWithPopup(auth, p); }
+      catch (e) {
+        if (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment') return A.signInWithRedirect(auth, p);
+        if (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') return;
+        if (e.code === 'auth/unauthorized-domain') return app.cloudState('error', 'Domaine non autorisé : ajoute « ' + location.hostname + ' » dans Firebase › Authentication › Paramètres › Domaines autorisés.');
+        fail(e);
+      }
+    },
+    logout() { return A.signOut(auth); }
+  };
+}

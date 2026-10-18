@@ -1,0 +1,11 @@
+rules_version = '2';
+// Règles Firestore de Threadmill Mate : à coller dans la console Firebase
+// (Firestore Database › Règles) puis « Publier ».
+// Chaque utilisateur connecté ne lit et n'écrit que sous users/{son uid} ; tout le reste est refusé.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}
