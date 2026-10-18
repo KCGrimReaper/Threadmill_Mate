@@ -17,7 +17,7 @@ Pas de chaîne de build : site statique (racine publiée telle quelle par Netlif
   - Historique (`st.history`, 50 courses au plus en local) : export FIT (`buildFit`), publication Strava (`stravaPublish` → fonction Netlify), forme décorative du tracé pour les courses sans GPX (`virtualPos`).
   - Allure « km-effort » : `metrics()` (v × (1 + pente/10)).
 - `netlify/functions/strava.js` : échange OAuth et envoi du FIT à Strava (secrets `STRAVA_CLIENT_ID` / `STRAVA_CLIENT_SECRET` dans les variables Netlify).
-- Strava : **une seule app Strava (Client ID 277538) partagée** avec Trail Planner Pro et Renfo Ultra-Trail ; domaine de retour unique `trailplannerpro.com`, dont la page `/strava-relay/` renvoie ici (state `tm`). Les dossiers `strava-tpp/` et `strava-renfo/` sont d'anciens relais. Ne jamais changer le domaine de retour chez Strava sans changer les trois apps.
+- Strava : **une seule app Strava (Client ID 277538) partagée** avec Trail Planner Pro et Renfo Ultra-Trail ; domaine de retour unique `trailplannerpro.com`, dont la page `/strava-relay/` renvoie ici (state `tm`). Les pages `strava-tpp/` et `strava-renfo/` sont des relais Strava en service. **Ne jamais toucher à ce qui concerne Strava (relais, fonction Netlify, connexion) sans demande explicite du propriétaire**, ni changer le domaine de retour chez Strava sans changer les trois apps.
 
 ## Synchronisation Firebase (`cloud.js`)
 
