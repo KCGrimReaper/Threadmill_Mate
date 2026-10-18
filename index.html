@@ -506,8 +506,8 @@ function videoSlot(sess){
   const names=sess.video.files.map(f=>esc(f.name)).join(', '), need=vidNeed[sess.id];
   const card=(on,title,sub,acc)=>'<button onclick="'+on+'" style="margin:10px 18px 0;background:'+(acc?'rgba(203,242,78,.09)':'#191b18')+';border:1px '+(acc?'solid #3d4a1c':'dashed #3a3f33')+';border-radius:16px;padding:14px;text-align:left;font:600 13px Barlow;color:'+(acc?ACC:'#C3C8B8')+';line-height:1.4">'+title+'<br><span style="font:500 12px Barlow;color:#8A8F80">'+sub+'</span></button>';
   let h='';
-  if(vidDir && need==='perm') h=card('videoLoad()','Autoriser l\'accès au dossier « '+esc(vidDir.name)+' »','la vidéo '+names+' y sera retrouvée toute seule',1);
-  else if(vidDir && need==='missing') h=card('videoLoad()','Vidéo '+names+' introuvable dans « '+esc(vidDir.name)+' »','choisir le fichier (ou ranger la vidéo dans ce dossier)')+
+  if(vidDir && need==='perm') h=card('videoLoad()','Autoriser l\'accès au dossier « '+esc(dirLabel())+' »','la vidéo '+names+' y sera retrouvée toute seule',1);
+  else if(vidDir && need==='missing') h=card('videoLoad()','Vidéo '+names+' introuvable dans « '+esc(dirLabel())+' »','choisir le fichier (ou ranger la vidéo dans ce dossier)')+
     (DIR_API?card('chooseVideoDir()','Changer de dossier des vidéos','sous-dossiers compris'):'');
   else if(DIR_API && !vidDir) h=card('chooseVideoDir()','Choisir le dossier de tes vidéos (une seule fois)','toutes les vidéos de tes séances y seront retrouvées toutes seules',1)+
     card('videoLoad()','Ou choisir seulement '+names,'');
@@ -619,9 +619,11 @@ function videoSync(){ const v=document.getElementById('tmv'), play=st.play, sess
   const base=at.vs>0.3 ? (st.speed/3.6)/at.vs : 1;
   v.playbackRate=clamp(base*(1+clamp(drift*0.25,-0.5,0.5)),0.2,6);
   if(v.paused) v.play().catch(()=>{}); }
+// nom affiché du dossier des vidéos : la racine d'un lecteur (ex. V:\) s'appelle « \ » pour le navigateur
+function dirLabel(){ return !vidDir?'':(/^[\\/]?$/.test(vidDir.name)?'racine du lecteur':vidDir.name); }
 function dirLine(){ if(!DIR_API) return '';
   return '<div style="display:flex;align-items:center;gap:10px;background:#191b18;border:1px solid #26291f;border-radius:12px;padding:10px 12px;margin-top:10px">'+
-    '<div style="flex:1;font:500 12.5px Barlow;color:#C3C8B8;line-height:1.4">'+(vidDir?'Dossier des vidéos : <b>'+esc(vidDir.name)+'</b><br><span style="color:#8A8F80">les vidéos y sont retrouvées toutes seules sur cet ordinateur</span>':'Choisis le dossier où sont tes vidéos : sur les autres séances et à chaque lancement, elles y seront retrouvées toutes seules.')+'</div>'+
+    '<div style="flex:1;font:500 12.5px Barlow;color:#C3C8B8;line-height:1.4">'+(vidDir?'Dossier des vidéos : <b>'+esc(dirLabel())+'</b><br><span style="color:#8A8F80">les vidéos y sont retrouvées toutes seules sur cet ordinateur</span>':'Choisis le dossier où sont tes vidéos : sur les autres séances et à chaque lancement, elles y seront retrouvées toutes seules.')+'</div>'+
     '<button onclick="chooseVideoDir()" style="background:'+(vidDir?'#23261e':ACC)+';border-radius:10px;padding:9px 12px;font:600 12.5px Barlow;color:'+(vidDir?'#C3C8B8':'#14170a')+'">'+(vidDir?'Changer':'Choisir')+'</button></div>'; }
 function viewVideoSheet(){ const vs=st.vidSheet, sess=st.sessions.find(x=>x.id===vs.id); if(!sess) return '';
   const btn=(on,label,primary)=>'<button onclick="'+on+'" style="width:100%;background:'+(primary?ACC:'#23261e')+';border-radius:14px;padding:14px;font:600 14px Barlow;color:'+(primary?'#14170a':'#C3C8B8')+';margin-top:8px">'+label+'</button>';
