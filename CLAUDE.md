@@ -16,7 +16,8 @@ Pas de chaîne de build : site statique (racine publiée telle quelle par Netlif
   - Séances (`st.sessions`) : intervalles (`segments` {name, dur s, spd km/h, inc %}) ou GPX importé (`onGpx` : tronçons de 50 m `segs` {d0, d1, grade, spd}, trace `track` {d, lat, lon, ele}).
   - Historique (`st.history`, 50 courses au plus en local) : export FIT (`buildFit`), publication Strava (`stravaPublish` → fonction Netlify), forme décorative du tracé pour les courses sans GPX (`virtualPos`).
   - Allure « km-effort » : `metrics()` (v × (1 + pente/10)).
-  - Simulation sans tapis (feuille Appareils › Simulation, `sim` / `simBelt`) : `sendSpeed` / `sendIncline` agissent directement sur `st.speed` / `st.incReal`, courroie lancée par le bouton de `simBar()` ; une course simulée n'est jamais archivée (`archiveRun`). Sert à essayer séances et vidéo sans tapis.
+  - Simulation sans tapis (feuille Appareils › Simulation, `sim` / `simBelt`) : `sendSpeed` / `sendIncline` agissent directement sur `st.speed` / `st.incReal`, courroie lancée par le bouton de `simBar()`. Horloge simulée `clockIso()` (1 s par pas, départ 3 h plus tôt : jamais d'activité dans le futur), « Accéléré ×10 » (`simFast`, 10 pas par seconde), « Enregistrer (tester Strava) » (`simRecord`) : sinon une course simulée n'est jamais archivée ; enregistrée, elle s'appelle « [Test] <séance> ». Sert à essayer séances, vidéo et publication Strava sans tapis.
+  - Position sur le parcours d'une séance GPX = `rpos()` = distance courue `st.dist` + `play.offset` (« Départ au km » avant le départ, « Sauter 500 m » / « +500 m » en course, `routeSkip`) : pente, vidéo, profil, sections et fin de séance suivent `rpos()` ; la distance courue reste la vraie (historique, FIT, Strava) ; chaque mesure garde `rd` (position sur le parcours) pour placer le GPS du FIT.
 - `netlify/functions/strava.js` : échange OAuth et envoi du FIT à Strava (secrets `STRAVA_CLIENT_ID` / `STRAVA_CLIENT_SECRET` dans les variables Netlify).
 - Strava : **une seule app Strava (Client ID 277538) partagée** avec Trail Planner Pro et Renfo Ultra-Trail ; domaine de retour unique `trailplannerpro.com`, dont la page `/strava-relay/` renvoie ici (state `tm`). Les pages `strava-tpp/` et `strava-renfo/` sont des relais Strava en service. **Ne jamais toucher à ce qui concerne Strava (relais, fonction Netlify, connexion) sans demande explicite du propriétaire**, ni changer le domaine de retour chez Strava sans changer les trois apps.
 
@@ -39,5 +40,7 @@ Pas de chaîne de build : site statique (racine publiée telle quelle par Netlif
 - Mise à jour venue d'un autre appareil : `softRender()` (pas de rendu pendant l'édition d'une séance ou un renommage, pour ne pas casser la saisie).
 
 ## Vérification
+
+FIT : relire le fichier produit avec le décodeur officiel `@garmin/fitsdk` (npm) : intégrité (CRC), session `running` / `virtualActivity`, distance = distance courue, positions = parcours. Publication Strava : intercepter `fetch` vers `/.netlify/functions/strava` pour lire exactement ce qui part (nom, description, fichier en base64).
 
 Pas de tests dans le dépôt. Avant de pousser : `node --check cloud.js gopro.js`, contrôle de la syntaxe du script d'`index.html`, et un passage dans Chromium (Playwright, `executablePath` vers le Chromium installé) avec un faux SDK Firebase injecté par `window.__tmFirebaseLibs` (lu par `cloud.js` à la place des imports gstatic) pour la synchro.

@@ -94,16 +94,22 @@ function cycleUnit(){ const o=['kmh','minkm','vkt'], i=o.indexOf(st.mainUnit); s
 function paces(sp, dist, dplus){ return subMetrics(); }
 async function reconnectTm(){ if(knownTm){ try{ await setupTreadmill(knownTm); }catch(e){} } }
 // ---------- simulation (sans tapis) : pour essayer les séances et la vidéo ; la courroie se lance d'un bouton ----------
-let sim=false, simBelt=false;
-function simToggle(){ sim=!sim; simBelt=false; st.speed=0; st.incReal=0; curGrade=0;
+// En simulation, l'heure des mesures vient d'une horloge simulée (1 s par pas, départ 3 h plus tôt) : en accéléré (×10),
+// la course enregistrée garde des temps réalistes et reste dans le passé (Strava refuse les activités dans le futur).
+let sim=false, simBelt=false, simFast=false, simRecord=false, simClock=0;
+function clockIso(){ if(sim){ simClock+=1000; return new Date(simClock).toISOString(); } return new Date().toISOString(); }
+function simToggle(){ sim=!sim; simBelt=false; simFast=false; st.speed=0; st.incReal=0; curGrade=0; simClock=Date.now()-3*3600*1000;
   if(sim){ if(device&&device.gatt.connected) device.gatt.disconnect(); spdMin=1; spdMax=18; incMin=0; incMax=15; st.connected=true; st.dist=0; st.dplus=0; st.elapsed=0; rec=[]; st.sheet=false; }
   else st.connected=false;
   render(); }
 function simBeltToggle(){ simBelt=!simBelt; st.speed=simBelt?clamp(st.spdT,spdMin,spdMax):0; render(); }
 function simBar(){ if(!sim) return '';
   return '<div style="margin:0 18px 8px;display:flex;align-items:center;gap:10px;background:rgba(232,197,71,.1);border:1px solid #5a4d1c;border-radius:14px;padding:9px 12px">'+
-    '<span style="flex:1;font:600 12.5px Barlow;color:#E8C547;line-height:1.35">Simulation sans tapis<br><span style="font-weight:500;color:#a99a5c">rien n\'est enregistré dans l\'historique</span></span>'+
-    '<button onclick="simBeltToggle()" style="background:'+(simBelt?'#23261e':'#E8C547')+';border-radius:10px;padding:9px 12px;font:600 13px Barlow;color:'+(simBelt?'#FF7A6B':'#14170a')+'">'+(simBelt?'Arrêter la courroie':'Lancer la courroie')+'</button></div>'; }
+    '<span style="flex:1;font:600 12.5px Barlow;color:#E8C547;line-height:1.35">Simulation sans tapis<br><span style="font-weight:500;color:#a99a5c">'+(simRecord?'enregistrée « [Test] » dans l\'historique':'rien n\'est enregistré')+'</span></span>'+
+    '<button onclick="simBeltToggle()" style="background:'+(simBelt?'#23261e':'#E8C547')+';border-radius:10px;padding:9px 12px;font:600 13px Barlow;color:'+(simBelt?'#FF7A6B':'#14170a')+'">'+(simBelt?'Arrêter la courroie':'Lancer la courroie')+'</button></div>'+
+    '<div style="margin:0 18px 8px;display:flex;gap:8px">'+
+    '<button onclick="simFast=!simFast;render()" style="flex:1;background:'+(simFast?'rgba(232,197,71,.18)':'#191b18')+';border:1px solid '+(simFast?'#E8C547':'#26291f')+';border-radius:12px;padding:9px;font:600 12.5px Barlow;color:'+(simFast?'#E8C547':'#C3C8B8')+'">Accéléré ×10</button>'+
+    '<button onclick="simRecord=!simRecord;render()" style="flex:1.4;background:'+(simRecord?'rgba(232,197,71,.18)':'#191b18')+';border:1px solid '+(simRecord?'#E8C547':'#26291f')+';border-radius:12px;padding:9px;font:600 12.5px Barlow;color:'+(simRecord?'#E8C547':'#C3C8B8')+'">Enregistrer (tester Strava)</button></div>'; }
 function disconnect(){ if(sim){ simToggle(); return; } if(device&&device.gatt.connected) device.gatt.disconnect(); st.connected=false; render(); }
 async function readRanges(svc){
   try{ const d=await (await svc.getCharacteristic(SPD_RANGE)).readValue(); spdMin=d.getUint16(0,true)*0.01; spdMax=d.getUint16(2,true)*0.01; }catch(e){}
@@ -174,7 +180,7 @@ function draftNameSet(v){ st.draft.name=v; }
 
 function launch(id){ const s=st.sessions.find(x=>x.id===id); if(!s) return;
   rec=[]; activeRoute = s.track&&s.track.length>1 ? s.track : null;
-  const play = s.type==='gpx' ? {type:'gpx',session:s,mode:s.hasTime?'gpx':'free',started:false,paused:false}
+  const play = s.type==='gpx' ? {type:'gpx',session:s,mode:s.hasTime?'gpx':'free',started:false,paused:false,offset:0}
     : {type:'interval',session:s,idx:0,segElapsed:0,started:false,paused:false};
   const first = s.type==='gpx' ? s.segs[0] : s.segments[0];
   st.play=play; st.view='play'; st.dist=0; st.dplus=0; st.elapsed=0; st.grades=[]; st.speeds=[];
@@ -182,17 +188,25 @@ function launch(id){ const s=st.sessions.find(x=>x.id===id); if(!s) return;
   st.incT = s.type==='gpx' ? first.grade : first.inc;
   sendControl([0x07]); st.vfull=false; if(s.video) restoreVideo(s); render(); }
 function doStop(){ if(st.play) sendSpeed(spdMin); archiveRun(); st.play=null; st.vfull=false; st.view='history'; render(); }
+// position sur le parcours : distance courue + décalage de la séance (départ au km X, passages sautés) ;
+// la distance courue (st.dist) reste la vraie, c'est elle qui part dans l'historique et sur Strava
+function rpos(){ return st.dist+(st.play&&st.play.offset||0); }
+const SKIP_M=500;
+function routeSkip(m){ const p=st.play; if(!p||p.type!=='gpx') return;
+  const max=Math.max(0,p.session.totalDist-20-st.dist);
+  p.offset=clamp((p.offset||0)+m, p.started?(p.offset||0):0, max); render(); }
 function segAtDist(sess,d){ const segs=sess.segs; for(let i=0;i<segs.length;i++) if(d<segs[i].d1) return segs[i]; return segs[segs.length-1]; }
 function segIdxAtDist(sess,d){ const segs=sess.segs; for(let i=0;i<segs.length;i++) if(d<segs[i].d1) return i; return segs.length-1; }
 
 // ---------- historique / export ----------
 function unloadPlay(){ st.play=null; st.vfull=false; st.view='drive'; render(); }
 function archiveRun(){
-  if(sim){ rec=[]; return; }   // course simulée : jamais dans l'historique (ni sur Strava)
+  if(sim && !simRecord){ rec=[]; return; }   // course simulée : dans l'historique seulement si « Enregistrer (tester Strava) »
   if(rec.length<2) return;
   const s=[]; for(let i=0;i<rec.length;i+=5) s.push(rec[i]); const last=rec[rec.length-1], first=rec[0];
   if(s[s.length-1]!==last) s.push(last);
-  const entry={id:'r'+Date.now(), date:first.t, name:st.play?st.play.session.name:'', dist:Math.round(last.dist),
+  const nm=st.play?st.play.session.name:'';
+  const entry={id:'r'+Date.now(), date:first.t, name:sim?'[Test] '+(nm||'Simulation'):nm, dist:Math.round(last.dist),
     dplus:Math.round(last.alt), dur:Math.round((new Date(last.t)-new Date(first.t))/1000), route:activeRoute||null, samples:s};
   st.justDone=entry.id; cloudPut('history',entry); const arr=[entry].concat(st.history).slice(0,50); persist('tm_history',arr); st.history=arr; rec=[]; }
 function finishRun(){ archiveRun(); st.view='history'; st.dist=0; st.dplus=0; st.elapsed=0; st.grades=[]; render(); }
@@ -284,7 +298,7 @@ function buildFit(sm,route,shape){ if(sm.length<2) return null;
   u8(0); u8(4); u16(255); u16(0); u32(toFit(new Date().toISOString())); u32(0);
   def(1,20,[[253,4,0x86],[5,4,0x86],[2,2,0x84],[6,2,0x84],[3,1,0x02],[0,4,0x85],[1,4,0x85]]);
   for(const s of sm){ let lat,lon,alt;
-    if(real){ const p=posAt(route,s.dist); lat=p.lat; lon=p.lon; alt=p.ele; }
+    if(real){ const p=posAt(route,s.rd!=null?s.rd:s.dist); lat=p.lat; lon=p.lon; alt=p.ele; }
     else { const q=virtualPos(s.dist, td, BLAT, BLON, shape); lat=q.lat; lon=q.lon; alt=s.alt; }
     u8(1); u32(toFit(s.t)); u32(Math.round(s.dist*100)); u16(Math.round((alt+500)*5)); u16(Math.round((s.spd/3.6)*1000)); u8(s.hr>0?Math.round(s.hr):0xFF); u32(sc(lat)); u32(sc(lon)); }
   def(2,19,[[253,4,0x86],[2,4,0x86],[7,4,0x86],[8,4,0x86],[9,4,0x86],[21,2,0x84]]);
@@ -475,12 +489,12 @@ const HUD_TILES={
   vkt:['VIT. EFFORT',s=>metrics(s.speed,s.incReal).vkt.toFixed(1),'km-e/h'],
   grade:['PENTE',s=>s.incReal.toFixed(1),'%'],
   dist:['DISTANCE',s=>(s.dist/1000).toFixed(2),'km'],
-  rest:['RESTE',s=>(Math.max(0,s.play.session.totalDist-s.dist)/1000).toFixed(2),'km'],
+  rest:['RESTE',s=>(Math.max(0,s.play.session.totalDist-rpos())/1000).toFixed(2),'km'],
   time:['TEMPS',s=>fmt(s.elapsed),''],
-  eta:['ARRIVÉE DANS',s=>{ const r=Math.max(0,s.play.session.totalDist-s.dist); return s.speed>0?fmt(r/(s.speed/3.6)):'—'; },''],
+  eta:['ARRIVÉE DANS',s=>{ const r=Math.max(0,s.play.session.totalDist-rpos()); return s.speed>0?fmt(r/(s.speed/3.6)):'—'; },''],
   hr:['FC',s=>s.hr>0?String(s.hr):'—','bpm'],
   dplus:['D+',s=>String(Math.round(s.dplus)),'m'],
-  ele:['ALTITUDE',s=>{ const t=s.play.session.track; return t&&t.length>1?String(Math.round(posAt(t,s.dist).ele)):'—'; },'m'] };
+  ele:['ALTITUDE',s=>{ const t=s.play.session.track; return t&&t.length>1?String(Math.round(posAt(t,rpos()).ele)):'—'; },'m'] };
 const HUD_DEFAULT=['speed','grade','dist','rest','time','hr'];
 let hudCfg=false;
 function hudTiles(){ try{ const v=JSON.parse(localStorage.getItem('tm_hud')||'null'); if(Array.isArray(v)){ const k=v.filter(x=>HUD_TILES[x]); if(k.length) return k; } }catch(e){} return HUD_DEFAULT; }
@@ -504,15 +518,15 @@ function hudProfile(sess){ const r=routeInfo(sess), L=sess.totalDist||1, N=r.ele
   const y=e=>(H-4-(e-r.emin)/span*(H-14)).toFixed(1), k=Math.max(1,Math.floor(N/300)), pts=[];
   for(let i=0;i<N;i+=k) pts.push((i*r.step/L*W).toFixed(1)+','+y(r.ele[i]));
   pts.push(W+','+y(r.ele[N-1]));
-  const path='M0,'+H+' L'+pts.join(' L')+' L'+W+','+H+' Z', x=(clamp(st.dist/L,0,1)*W).toFixed(1);
-  const sec=r.secs.find(z=>st.dist>=z.d0&&st.dist<z.d1);
+  const rp=rpos(), path='M0,'+H+' L'+pts.join(' L')+' L'+W+','+H+' Z', x=(clamp(rp/L,0,1)*W).toFixed(1);
+  const sec=r.secs.find(z=>rp>=z.d0&&rp<z.d1);
   return '<svg viewBox="0 0 1000 90" preserveAspectRatio="none" style="width:100%;height:64px;display:block">'+
     '<defs><clipPath id="hudDone"><rect x="0" y="0" width="'+x+'" height="90"/></clipPath></defs>'+
     (sec?'<rect x="'+(sec.d0/L*W).toFixed(1)+'" y="0" width="'+((sec.d1-sec.d0)/L*W).toFixed(1)+'" height="90" fill="rgba(255,255,255,.1)"/>':'')+
     '<path d="'+path+'" fill="rgba(242,244,238,.3)"/><path d="'+path+'" fill="'+ACC+'" clip-path="url(#hudDone)"/>'+
     '<line x1="'+x+'" x2="'+x+'" y1="0" y2="90" stroke="#fff" stroke-width="2.5" vector-effect="non-scaling-stroke"/></svg>'; }
-function hudSection(sess){ const r=routeInfo(sess), i=r.secs.findIndex(z=>st.dist>=z.d0&&st.dist<z.d1); if(i<0) return '<div></div>';
-  const x=r.secs[i], nx=r.secs[i+1], rest=x.d1-st.dist, pr=clamp((st.dist-x.d0)/Math.max(1,x.d1-x.d0),0,1)*100;
+function hudSection(sess){ const rp=rpos(), r=routeInfo(sess), i=r.secs.findIndex(z=>rp>=z.d0&&rp<z.d1); if(i<0) return '<div></div>';
+  const x=r.secs[i], nx=r.secs[i+1], rest=x.d1-rp, pr=clamp((rp-x.d0)/Math.max(1,x.d1-x.d0),0,1)*100;
   const col={up:'#FF9F5A',down:'#5AB4FF',flat:'#C3C8B8'}[x.kind];
   return '<div style="background:rgba(10,11,10,.68);border-radius:14px;padding:10px 12px;min-width:190px;max-width:280px">'+
     '<div style="font:700 10.5px Barlow;letter-spacing:.12em;color:'+col+'">SECTION '+(i+1)+'/'+r.secs.length+'</div>'+
@@ -528,11 +542,11 @@ function videoHud(){ const s=st, sess=s.play.session, stop='event.stopPropagatio
   const sp=(d,l,acc)=>'<button class="stepbtn" onclick="'+stop+'adjSpd('+d+')" style="width:58px;height:58px;border-radius:16px;background:'+(acc?ACC:'rgba(10,11,10,.7)')+';font:400 30px Barlow;color:'+(acc?'#14170a':ACC)+'">'+l+'</button>';
   let h=vidOutside()+'<div style="position:absolute;inset:0;padding:calc(10px + env(safe-area-inset-top)) 12px calc(10px + env(safe-area-inset-bottom));display:flex;flex-direction:column;justify-content:space-between;color:#F2F4EE;pointer-events:none">'+
     '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;pointer-events:auto"><div style="display:flex;flex-wrap:wrap;gap:6px">'+tiles+'</div>'+
-    '<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">'+pill('st.vfull=false;hudCfg=false;render()','Quitter')+pill('hudCfg=true;render()','Infos')+'</div></div>'+
+    '<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">'+pill('st.vfull=false;hudCfg=false;render()','Quitter')+pill('hudCfg=true;render()','Infos')+(s.play.started?pill('routeSkip('+SKIP_M+')','+500 m'):'')+'</div></div>'+
     '<div style="pointer-events:auto"><div style="display:flex;justify-content:space-between;align-items:flex-end;gap:8px;margin-bottom:8px">'+hudSection(sess)+
     '<div style="display:flex;align-items:center;gap:8px">'+sp(-STEP,'−')+'<div style="text-align:center;min-width:54px"><div style="font:600 28px \'Barlow Condensed\';line-height:1;color:'+ACC+'">'+s.spdT.toFixed(1)+'</div><div style="font:600 9.5px Barlow;letter-spacing:.1em;color:#C3C8B8">CIBLE</div></div>'+sp(STEP,'+',1)+'</div></div>'+
     '<div style="background:rgba(10,11,10,.55);border-radius:12px;padding:6px 8px 4px">'+hudProfile(sess)+
-    '<div style="display:flex;justify-content:space-between;font:600 11px Barlow;color:#C3C8B8;margin-top:2px"><span>0 km</span><span>'+(s.dist/1000).toFixed(2)+' / '+(sess.totalDist/1000).toFixed(2)+' km</span></div></div></div></div>';
+    '<div style="display:flex;justify-content:space-between;font:600 11px Barlow;color:#C3C8B8;margin-top:2px"><span>0 km</span><span>km '+(rpos()/1000).toFixed(2)+' / '+(sess.totalDist/1000).toFixed(2)+' km</span></div></div></div></div>';
   if(hudCfg){ const sel=hudTiles();
     h+='<div onclick="event.stopPropagation()" style="position:absolute;inset:0;background:rgba(7,8,7,.88);display:flex;align-items:center;justify-content:center;padding:20px;z-index:2">'+
       '<div style="width:100%;max-width:440px"><div style="font:600 19px Barlow;margin-bottom:4px">Tableau de bord</div>'+
@@ -548,7 +562,7 @@ function videoSync(){ const v=document.getElementById('tmv'), play=st.play, sess
   const files=sess&&sess.video&&vidFiles[sess.id];
   if(!files || st.view!=='play'){ if(!v.paused) v.pause(); if(!play&&vidCur.url){ URL.revokeObjectURL(vidCur.url); vidCur={sid:null,fi:-1,url:null}; v.removeAttribute('src'); v.load(); } return; }
   const moving=st.speed>0 && play.started && !play.paused;
-  const dEst=st.dist+(moving&&lastTickAt? st.speed/3.6*Math.min(1.2,(performance.now()-lastTickAt)/1000) : 0);
+  const dEst=rpos()+(moving&&lastTickAt? st.speed/3.6*Math.min(1.2,(performance.now()-lastTickAt)/1000) : 0);
   const at=TMGoPro.videoAt(sess.video, dEst);
   const out = at? '' : (dEst<sess.video.d0? 'La vidéo commence à '+(sess.video.d0/1000).toFixed(2)+' km' : 'Fin de la vidéo');
   if(out!==(vidCur.out||'')){ vidCur.out=out; placeVideo(); }
@@ -622,7 +636,7 @@ function tick(){
   }
   lastTickAt=performance.now();
   if(speed>0){ const m=speed/3.6; st.dist+=m; st.dplus+=(curGrade>0?m*curGrade/100:0); st.elapsed+=1;
-    rec.push({t:new Date().toISOString(), dist:st.dist, spd:speed, alt:st.dplus, hr:st.hr||0});
+    const smp={t:clockIso(), dist:st.dist, spd:speed, alt:st.dplus, hr:st.hr||0}; if(st.play&&st.play.offset) smp.rd=Math.round(rpos()*10)/10; rec.push(smp);
     st.grades.push(curGrade);
     st.speeds.push(st.speed); }
   playAdvance();
@@ -636,8 +650,8 @@ function playAdvance(){ const play=st.play; if(!play||play.paused) return;
     let advanced=false;
     if(play.segElapsed>=seg.dur){ if(play.idx+1>=segs.length){ doStop(); return; } play.idx++; play.segElapsed=0; advanced=true; }
     const cur=segs[play.idx]; applyTargets(cur.spd,cur.inc, justStarted||advanced);
-  }else{ const sess=play.session, seg=segAtDist(sess,st.dist);
-    if(play.started && st.dist>=sess.totalDist){ doStop(); return; }
+  }else{ const sess=play.session, seg=segAtDist(sess,rpos());
+    if(play.started && rpos()>=sess.totalDist){ doStop(); return; }
     applyTargets(play.mode==='gpx' && seg.spd!=null ? seg.spd : null, seg.grade, justStarted); }
 }
 function applyTargets(spd,inc,force){
@@ -708,8 +722,8 @@ function stat(lbl,val,sz,col){ return '<div style="background:#191b18;padding:'+
   '<div style="font:600 '+sz+'px \'Barlow Condensed\';line-height:1'+(col?';color:'+col:'')+';font-variant-numeric:tabular-nums">'+val+'</div></div>'; }
 
 function graphCard(){ const s=st, play=s.play; let bars,title,right,prog='0%';
-  if(play && play.type==='gpx'){ bars=gpxBars(play.session,s.dist); title='PROFIL · '+play.session.name.toUpperCase();
-    right=((play.session.totalDist-Math.min(s.dist,play.session.totalDist))/1000).toFixed(1)+' km'; prog=Math.min(100,s.dist/play.session.totalDist*100)+'%'; }
+  if(play && play.type==='gpx'){ const rp=rpos(); bars=gpxBars(play.session,rp); title='PROFIL · '+play.session.name.toUpperCase();
+    right=((play.session.totalDist-Math.min(rp,play.session.totalDist))/1000).toFixed(1)+' km'; prog=Math.min(100,rp/play.session.totalDist*100)+'%'; }
   else if(s.grades.length>=2){ bars=gradeBars(s.grades);
     const pMax=Math.max(...s.grades.slice(-26),1).toFixed(0), vMax=Math.max(...s.speeds.slice(-26),1).toFixed(0);
     title='COURSE · PENTE ≤'+pMax+'% · VIT ≤'+vMax; right=Math.round(s.incReal)+' % · '+s.speed.toFixed(1)+' km/h'; prog=Math.min(100,s.incReal/incMax*100)+'%'; }
@@ -853,17 +867,21 @@ function viewPlay(){ const s=st, play=s.play; if(!play) return '';
     block=((seg.name||'Bloc '+(play.idx+1))+' · '+(play.idx+1)+'/'+segs.length).toUpperCase(); rem='reste '+fmt(seg.dur-(play.segElapsed||0));
     bars=intervalBars(segs,play.idx); prog=Math.min(100,done/tt*100)+'%'; tot=fmt(done)+' / '+fmt(tt);
     next=nx?'suivant : '+nx.spd.toFixed(1)+' km/h · '+Math.round(nx.inc)+' %':'dernier bloc'; pSpd=seg.spd.toFixed(1); pInc=String(Math.round(seg.inc));
-  }else{ const i=segIdxAtDist(sess,s.dist), seg=sess.segs[i], nx=sess.segs[i+1];
-    block=('tronçon '+(i+1)+'/'+sess.segs.length+' · pente '+seg.grade.toFixed(1)+' %').toUpperCase(); rem='reste '+((sess.totalDist-Math.min(s.dist,sess.totalDist))/1000).toFixed(2)+' km';
-    bars=gpxBars(sess,s.dist).map(b=>({flex:1,h:b.h,color:b.color})); prog=Math.min(100,s.dist/sess.totalDist*100)+'%';
-    tot=(Math.min(s.dist,sess.totalDist)/1000).toFixed(2)+' / '+(sess.totalDist/1000).toFixed(2)+' km';
+  }else{ const rp=rpos(), i=segIdxAtDist(sess,rp), seg=sess.segs[i], nx=sess.segs[i+1];
+    block=('tronçon '+(i+1)+'/'+sess.segs.length+' · pente '+seg.grade.toFixed(1)+' %').toUpperCase(); rem='reste '+((sess.totalDist-Math.min(rp,sess.totalDist))/1000).toFixed(2)+' km';
+    bars=gpxBars(sess,rp).map(b=>({flex:1,h:b.h,color:b.color})); prog=Math.min(100,rp/sess.totalDist*100)+'%';
+    tot='km '+(Math.min(rp,sess.totalDist)/1000).toFixed(2)+' / '+(sess.totalDist/1000).toFixed(2)+(play.offset?' · couru '+(s.dist/1000).toFixed(2):'');
     next=nx?'à venir : pente '+nx.grade.toFixed(1)+' %':'fin du parcours'; pSpd=(play.mode==='gpx'&&seg.spd!=null)?seg.spd.toFixed(1):s.spdT.toFixed(1); pInc=String(Math.round(seg.grade)); }
   let h='<div style="flex:1;display:flex;flex-direction:column">'+
     '<div style="padding:2px 18px 0;display:flex;align-items:baseline;justify-content:space-between"><div style="font:600 16px Barlow">'+esc(sess.name)+'</div>'+modeHtml+'</div>';
   if(play.type==='gpx' && sess.video) h+=videoSlot(sess);
   if(!play.started) h+='<div style="margin:10px 18px 0;background:rgba(203,242,78,.09);border:1px solid #3d4a1c;border-radius:14px;padding:11px 13px;display:flex;align-items:center;gap:10px">'+
     '<span style="flex:1;font:600 12.5px Barlow;color:#CBF24E;line-height:1.4">Séance chargée · lance la courroie au bouton du tapis</span>'+
-    '<button onclick="unloadPlay()" title="Décharger" style="background:transparent;font:500 20px Barlow;color:#CBF24E;line-height:1;padding:0 2px">×</button></div>';
+    '<button onclick="unloadPlay()" title="Décharger" style="background:transparent;font:500 20px Barlow;color:#CBF24E;line-height:1;padding:0 2px">×</button></div>'+
+    (play.type==='gpx'?'<div style="margin:8px 18px 0;display:flex;align-items:center;gap:8px;background:#191b18;border:1px solid #26291f;border-radius:14px;padding:8px 10px">'+
+      '<span style="flex:1;font:600 12.5px Barlow;color:#C3C8B8">Départ au km <span style="color:#CBF24E;font-size:15px">'+((play.offset||0)/1000).toFixed(1)+'</span></span>'+
+      '<button onclick="routeSkip(-'+SKIP_M+')" style="width:44px;background:#23261e;border-radius:10px;padding:8px 0;font:600 16px Barlow;color:#CBF24E">−</button>'+
+      '<button onclick="routeSkip('+SKIP_M+')" style="width:44px;background:#23261e;border-radius:10px;padding:8px 0;font:600 16px Barlow;color:#CBF24E">+</button></div>':'');
   h+='<div style="margin:10px 18px 0;background:#191b18;border:1px solid #26291f;border-radius:20px;padding:13px 14px 12px">'+
     '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px"><span style="font:600 11.5px Barlow;letter-spacing:.12em;color:#8A8F80">'+block+'</span><span style="font:600 13px Barlow;color:#C3C8B8">'+rem+'</span></div>'+
     '<div style="display:flex;align-items:flex-end;gap:2px;height:70px">'+barsHtml(bars)+'</div>'+
@@ -878,6 +896,7 @@ function viewPlay(){ const s=st, play=s.play; if(!play) return '';
     '<button class="stepbtn" onclick="adjSpd(-'+STEP+')" style="width:74px;height:62px;background:#23261e;border-radius:14px;font:400 28px Barlow;color:#CBF24E">−</button>'+
     '<div style="flex:1;text-align:center"><div style="font:600 42px \'Barlow Condensed\';line-height:.9;color:#CBF24E;font-variant-numeric:tabular-nums">'+s.spdT.toFixed(1)+'</div><div style="font:600 10px Barlow;letter-spacing:.12em;color:#8A8F80">'+(play.mode==='gpx'?'ALLURE DU GPX · + / − POUR LA CHANGER':'ALLURE LIBRE KM/H')+'</div></div>'+
     '<button class="stepbtn" onclick="adjSpd('+STEP+')" style="width:74px;height:62px;background:#CBF24E;border-radius:14px;font:400 28px Barlow;color:#14170a">+</button></div>';
+  if(play.type==='gpx' && play.started) h+='<button onclick="routeSkip('+SKIP_M+')" style="margin:0 18px 10px;background:#191b18;border:1px solid #26291f;border-radius:16px;padding:12px;font:600 13.5px Barlow;color:#C3C8B8">Sauter 500 m du parcours <span style="color:#6d7264">(ta distance courue ne change pas)</span></button>';
   h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 18px 14px">'+
     '<button onclick="playPause()" style="background:#23261e;border-radius:16px;padding:15px;font:600 15px Barlow;color:#F2F4EE">'+(play.paused?'Reprendre':'Pause')+'</button>'+
     '<button onclick="doStop()" style="background:transparent;border:1px solid #4a2f2b;border-radius:16px;padding:15px;font:600 15px Barlow;color:#FF7A6B">Terminer</button></div></div>';
@@ -929,6 +948,7 @@ try{ const u=localStorage.getItem('tm_unit'); if(u) st.mainUnit=u; }catch(e){}
   if(code){ history.replaceState({},'',location.pathname); st.view='history'; stravaExchange(code); }
 })();
 setInterval(tick,1000);
+setInterval(()=>{ if(sim&&simFast){ for(let i=0;i<9;i++) tick(); } },1000);   // simulation accélérée : 10 pas par seconde
 setInterval(videoSync,250);
 window.addEventListener('resize', placeVideo);
 render();
