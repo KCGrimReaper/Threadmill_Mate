@@ -4,7 +4,7 @@
 
 1. Claude code et pousse **directement sur `main`** (décision du propriétaire, 18/10/2026 ; l'ancienne branche `develop` n'est plus utilisée).
 2. Le propriétaire fait `git pull` dans VS Code et teste avec Live Server (http://127.0.0.1:5500, ouvrir `index.html` de la racine : Live Server démarre sur le fichier HTML actif de l'éditeur).
-3. Si c'est bon, il met en ligne lui-même sur Netlify (`threadmill-mate.netlify.app`).
+3. Netlify est relié au dépôt : **chaque push sur `main` lance un déploiement en production** (`threadmill-mate.netlify.app`). Netlify bloque le déploiement si la valeur d'une variable d'environnement apparaît dans les fichiers (contrôle des secrets) : `STRAVA_CLIENT_ID` (public) en est exclu dans `netlify.toml` ; ne jamais écrire `STRAVA_CLIENT_SECRET` nulle part.
 
 Pas de chaîne de build : site statique (racine publiée telle quelle par Netlify, `netlify.toml`) + une fonction Netlify. Tout fichier ajouté à la racine est publié : rien de secret dans le dépôt.
 

@@ -2,5 +2,10 @@
   publish = "."
   functions = "netlify/functions"
 
+# L'identifiant de l'app Strava (STRAVA_CLIENT_ID) est public : il figure dans l'adresse de connexion Strava
+# (index.html). Seul STRAVA_CLIENT_SECRET est secret, et il reste analysé par le contrôle des secrets.
+[build.environment]
+  SECRETS_SCAN_OMIT_KEYS = "STRAVA_CLIENT_ID"
+
 [dev]
   port = 8888
