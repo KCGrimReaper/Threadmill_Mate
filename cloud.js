@@ -10,6 +10,7 @@
 const V = '10.12.2', BASE = 'https://www.gstatic.com/firebasejs/' + V + '/';
 const CH = 700000;            // caractères par document (marge sous 1 Mo)
 const KINDS = ['sessions', 'history'], SETTINGS = ['unit', 'strava', 'hud', 'hrz'];
+const LEGACY = ['unit', 'strava'];
 const cfg = window.TM_FIREBASE_CONFIG;
 const app = window.tmApp;     // passerelle exposée par index.html
 
@@ -55,7 +56,7 @@ async function start() {
   }
   function putSettings() {
     if (!uid) return;
-    return F.setDoc(F.doc(db, 'users', uid), app.settings()).catch(fail);
+    return F.setDoc(F.doc(db, 'users', uid), app.settings(), { merge: true }).catch(fail);   // merge : ne jamais retirer un champ d'une version plus récente
   }
   async function readItem(key, d) {
     if (d.data) return JSON.parse(d.data);
@@ -93,17 +94,20 @@ async function start() {
   // Réglages fusionnés champ par champ : le plus récent gagne ; à égalité (deux valeurs jamais modifiées
   // depuis la synchro, u = 0), une valeur l'emporte sur une absence (une connexion Strava n'est jamais
   // effacée par un appareil qui n'en a simplement pas). Ancien format { unit, strava, u } : u = 1 voulait dire « jamais modifié ».
+  // Un champ absent du document (écrit par une ancienne version de l'app qui ne le connaît pas) ne vaut jamais
+  // « effacé » : on l'ignore et l'appareil renvoie sa valeur. Seuls unit et strava existaient dans l'ancien format { unit, strava, u }.
   function remoteField(d, f) {
     if (!d) return null;
-    const u = d[f + 'U'] != null ? d[f + 'U'] : (d.u > 1 ? d.u : 0);
-    return { v: d[f] === undefined ? null : d[f], u };
+    if (d[f + 'U'] != null) return { v: d[f] === undefined ? null : d[f], u: d[f + 'U'] };
+    if (d[f] === undefined || !LEGACY.includes(f)) return null;
+    return { v: d[f], u: d.u > 1 ? d.u : 0 };
   }
   function onSettings(snap) {
     const d = snap.exists() ? snap.data() : null, loc = app.settings(), upd = {};
-    let push = !d;
+    let push = !d, missing = false;
     SETTINGS.forEach(f => {
       const r = remoteField(d, f), lv = loc[f] == null ? null : loc[f], lu = loc[f + 'U'] || 0;
-      if (!r) return;
+      if (!r) { if (lv != null || lu) { push = true; missing = true; } return; }
       if (r.u > lu || (r.u === lu && lv == null && r.v != null)) upd[f] = r;
       else if (r.u < lu || (r.u === lu && lv != null && r.v == null)) push = true;
     });
@@ -111,7 +115,7 @@ async function start() {
     if (!settingsMerged && !snap.metadata.fromCache) {
       settingsMerged = true;
       if (push) putSettings();
-    }
+    } else if (settingsMerged && missing && !snap.metadata.hasPendingWrites) putSettings();   // document réécrit par une ancienne version : on y remet nos champs
   }
 
   A.onAuthStateChanged(auth, user => {

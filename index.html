@@ -186,8 +186,7 @@ function launch(id){ const s=st.sessions.find(x=>x.id===id); if(!s) return;
   st.play=play; st.view='play'; st.dist=0; st.dplus=0; st.elapsed=0; st.grades=[]; st.speeds=[];
   st.spdT = s.type==='gpx' ? (first.spd||st.spdT) : first.spd;
   st.incT = s.type==='gpx' ? first.grade : first.inc;
-  sendControl([0x07]); st.vfull=false; st.hudRun=null; if(s.video) restoreVideo(s); render();
-  if(s.type==='gpx' && s.video && vfullStart()) toggleVideoFull(); }   // clic sur « Lancer » : le plein écran du navigateur est autorisé
+  sendControl([0x07]); st.vfull=false; st.hudRun=null; if(s.video) restoreVideo(s); render(); }
 function doStop(){ if(st.play) sendSpeed(spdMin); if(!archiveRun()) st.justDone=null; st.play=null; st.vfull=false; st.view='history'; render(); }
 // position sur le parcours : distance courue + décalage de la séance (départ au km X, passages sautés) ;
 // la distance courue (st.dist) reste la vraie, c'est elle qui part dans l'historique et sur Strava
@@ -517,10 +516,11 @@ function videoSlot(sess){
   else h=card('videoLoad()','Vidéo : choisir '+names,OPFS_API?'puis « Garder dans l\'app » pour ne plus avoir à la choisir':'');
   return h+(st.vidMsg?'<div style="margin:6px 18px 0;font:500 12px Barlow;color:#FF7A6B">'+esc(st.vidMsg)+'</div>':''); }
 function toggleGpxPace(){ const p=st.play; if(!p||p.type!=='gpx') return; p.mode=p.mode==='gpx'?'free':'gpx'; render(); }
-function toggleVideoFull(){ if(st.vfull){ exitVideoFull(); return; } st.vfull=true; render();
-  // plein écran du navigateur (barres masquées) et, sur téléphone, écran tourné à l'horizontale ; sans effet si refusé
-  const el=document.documentElement;
-  if(el.requestFullscreen && !document.fullscreenElement) el.requestFullscreen({navigationUI:'hide'}).then(()=>{ try{ screen.orientation.lock('landscape').catch(()=>{}); }catch(e){} }).catch(()=>{}); }
+function toggleVideoFull(){ if(st.vfull){ exitVideoFull(); return; } st.vfull=true; render(); browserFull(); }
+// plein écran du navigateur (barres masquées) et, sur téléphone, écran à l'horizontale ; le navigateur ne l'accepte qu'après
+// un toucher : au démarrage de la courroie (bouton du tapis), le bouton « Plein écran total » du tableau de bord le demande
+function browserFull(){ const el=document.documentElement;
+  if(el.requestFullscreen && !document.fullscreenElement) el.requestFullscreen({navigationUI:'hide'}).then(()=>{ try{ screen.orientation.lock('landscape').catch(()=>{}); }catch(e){} render(); }).catch(()=>{}); }
 function exitVideoFull(){ st.vfull=false; hudCfg=false; document.getElementById('vcfg').innerHTML=''; if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(()=>{}); try{ screen.orientation.unlock(); }catch(e){} render(); }
 document.addEventListener('fullscreenchange',()=>{ if(!document.fullscreenElement && st.vfull){ st.vfull=false; hudCfg=false; document.getElementById('vcfg').innerHTML=''; render(); } });
 // pose la vidéo (élément permanent, hors du rendu) sur son emplacement, ou en plein écran avec les chiffres par-dessus
@@ -653,7 +653,7 @@ function videoHud(){ const s=st, sess=s.play.session, stop='event.stopPropagatio
   const sp=(d,l,acc)=>'<button class="stepbtn" onclick="'+stop+'adjSpd('+d+')" style="width:58px;height:58px;border-radius:16px;background:'+(acc?ACC:'rgba(10,11,10,.7)')+';font:400 30px Barlow;color:'+(acc?'#14170a':ACC)+'">'+l+'</button>';
   let h=vidOutside()+'<div style="position:absolute;inset:0;padding:calc(10px + env(safe-area-inset-top)) 12px calc(10px + env(safe-area-inset-bottom));display:flex;flex-direction:column;justify-content:space-between;color:#F2F4EE;pointer-events:none">'+
     '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;pointer-events:auto"><div style="display:flex;flex-wrap:wrap;gap:6px">'+tiles+'</div>'+
-    '<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">'+pill('exitVideoFull()','Quitter')+pill('hudOpen()','Infos')+(s.play.started?pill('routeSkip('+SKIP_M+')','+500 m'):'')+'</div></div>'+
+    '<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">'+pill('exitVideoFull()','Quitter')+(!document.fullscreenElement&&document.documentElement.requestFullscreen?pill('browserFull()','Plein écran total'):'')+pill('hudOpen()','Infos')+(s.play.started?pill('routeSkip('+SKIP_M+')','+500 m'):'')+'</div></div>'+
     '<div style="pointer-events:auto"><div style="display:flex;justify-content:space-between;align-items:flex-end;gap:8px;margin-bottom:8px">'+hudSection(sess)+
     '<div style="display:flex;align-items:center;gap:8px">'+sp(-STEP,'−')+'<div style="text-align:center;min-width:54px"><div style="font:600 28px \'Barlow Condensed\';line-height:1;color:'+ACC+'">'+s.spdT.toFixed(1)+'</div><div style="font:600 9.5px Barlow;letter-spacing:.1em;color:#C3C8B8">CIBLE</div></div>'+sp(STEP,'+',1)+'</div></div>'+
     '<div style="background:rgba(10,11,10,.55);border-radius:12px;padding:6px 8px 4px">'+hudProfile(sess)+
@@ -753,7 +753,9 @@ function tick(){
 }
 function playAdvance(){ const play=st.play; if(!play||play.paused) return;
   let justStarted=false;
-  if(!play.started && st.speed>0){ play.started=true; justStarted=true; }
+  if(!play.started && st.speed>0){ play.started=true; justStarted=true;
+    // « Plein écran au démarrage » : quand la courroie démarre (pas au clic sur « Lancer »)
+    if(play.type==='gpx' && play.session.video && vfullStart() && !st.vfull) toggleVideoFull(); }
   if(play.type==='interval'){ const segs=play.session.segments, seg=segs[play.idx];
     if(play.started && st.speed>0) play.segElapsed=(play.segElapsed||0)+1;
     let advanced=false;
@@ -787,7 +789,7 @@ function viewSettings(){ const sec=t=>'<div style="font:700 11px Barlow;letter-s
     '<button onclick="hrzOpen()" style="background:#23261e;border-radius:11px;padding:10px 14px;font:600 13px Barlow;color:#C3C8B8">'+(hrzCfg()?'Modifier':'Régler')+'</button></div>'+
 
     sec('PLEIN ÉCRAN VIDÉO')+
-    row('Démarrer en plein écran','Les séances avec vidéo s\'ouvrent directement en plein écran (sur cet appareil)',
+    row('Plein écran au démarrage','Quand la courroie démarre, la vidéo passe en plein écran (sur cet appareil)',
       '<button onclick="vfullStartToggle()" style="background:'+(on?ACC:'#23261e')+';border-radius:11px;padding:10px 14px;font:600 13px Barlow;color:'+(on?'#14170a':'#C3C8B8')+'">'+(on?'Oui':'Non')+'</button>')+
     '<div style="background:#191b18;border:1px solid #26291f;border-radius:16px;padding:13px 14px;margin-bottom:14px">'+
     '<div style="font:600 14.5px Barlow">Vue par défaut</div><div style="font:500 12px Barlow;color:#8A8F80;margin-bottom:10px">Infos affichées en plein écran, dans l\'ordre de l\'écran</div>'+hudEditor(hudDefault())+'</div>'+
