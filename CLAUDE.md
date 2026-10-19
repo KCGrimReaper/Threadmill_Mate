@@ -10,7 +10,7 @@ Pas de chaîne de build : site statique (racine publiée telle quelle par Netlif
 
 ## Architecture
 
-- `index.html` : toute l'app (une page, JavaScript sans framework, rendu par chaînes HTML dans `render()`, état global `st`). Interface en français, sombre, police Barlow, couleur d'accent `#CBF24E`, largeur max 430 px (usage téléphone posé sur le tapis).
+- `index.html` : toute l'app (une page, JavaScript sans framework, rendu par chaînes HTML dans `render()`, état global `st`). Interface en français, sombre, police Barlow, couleur d'accent `#CBF24E`. Téléphone d'abord (colonne de 430 px max) ; **vue bureau à partir de 900 px** par CSS seulement (`@media (min-width:900px)`) : `.dk-col` (Pilotage, édition : colonne centrée de 640 px), `.dk-wide` + `.list-grid` (Séances, Historique : cartes en grille), séance avec vidéo `.pl-grid` (vidéo en grand à gauche `.pl-left`, chiffres et commandes à droite `.pl-right`), sans vidéo `.pl-one` ; ces conteneurs sont en `display:contents` sur téléphone (rien ne change) ; fenêtres du bas centrées (560 px), barre du bas `.navbar` centrée. Le plein écran vidéo est le même partout.
   - Bluetooth (Web Bluetooth, Chrome, HTTPS ou localhost) : tapis FTMS (`setupTreadmill`, consignes vitesse `sendSpeed` / pente `sendIncline` via le point de contrôle, données `parseData`), ceinture cardio (`setupHr`), reconnexion aux appareils connus (`loadKnown`).
   - Boucle 1 Hz `tick()` : distance, D+, enregistrement `rec` (une mesure / s, gardée une sur 5 dans l'historique), avancement des séances `playAdvance`.
   - Séances (`st.sessions`) : intervalles (`segments` {name, dur s, spd km/h, inc %}) ou GPX importé (`onGpx` : tronçons de 50 m `segs` {d0, d1, grade, spd}, trace `track` {d, lat, lon, ele}).

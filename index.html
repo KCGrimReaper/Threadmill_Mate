@@ -24,21 +24,39 @@
   #vbox video{width:100%;height:100%;object-fit:cover;display:block}
   #vbox.full{position:fixed;inset:0;border-radius:0;z-index:40}
   #vbox.full video{object-fit:contain}
+  /* mise en page : sur téléphone, ces conteneurs sont transparents (rien ne change) */
+  .pl-grid,.pl-one,.pl-left,.pl-right{display:contents}
+  .list-grid{display:flex;flex-direction:column;gap:10px}
+  @media (min-width:900px){
+    #app{max-width:none}
+    .dk-col{width:100%;max-width:640px;margin:0 auto}
+    .dk-wide{width:100%;max-width:1180px;margin:0 auto}
+    .list-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));align-items:start}
+    /* séance avec vidéo : vidéo en grand à gauche, chiffres et commandes à droite */
+    .pl-grid{display:grid;grid-template-columns:minmax(0,1.75fr) minmax(360px,1fr);gap:0 20px;align-items:start;padding:0 18px;width:100%;max-width:1600px;margin:0 auto}
+    .pl-left,.pl-right{display:flex;flex-direction:column}
+    .pl-one{display:flex;flex-direction:column}
+    .pl-one>.pl-left,.pl-one>.pl-right{display:contents}
+    .pl-left>*,.pl-right>*{margin-left:0!important;margin-right:0!important}
+    /* fenêtres du bas centrées au lieu de toute la largeur */
+    #ui>div[style*="inset:0"]>div{max-width:560px;margin-left:auto;margin-right:auto}
+    .navbar{max-width:640px;margin:0 auto;width:100%;border-radius:18px 18px 0 0;border-left:1px solid #23261e;border-right:1px solid #23261e}
+  }
 </style>
 </head>
 <body>
 <div id="app"><div id="ui"></div><div id="vbox" onclick="if(!st.vfull)toggleVideoFull()"><video id="tmv" playsinline muted preload="auto"></video><div id="vhud"></div><div id="vcfg"></div></div></div>
 <input type="file" id="gpxFile" accept=".gpx" style="display:none">
 <input type="file" id="vidFile" accept="video/mp4,.mp4,.MP4,.mov,.MOV" multiple style="display:none">
-<script src="firebase-config.js?v=2026.10.19-4"></script>
-<script src="gopro.js?v=2026.10.19-4"></script>
+<script src="firebase-config.js?v=2026.10.19-5"></script>
+<script src="gopro.js?v=2026.10.19-5"></script>
 <script>
 const FTMS=0x1826, DATA=0x2acd, CONTROL=0x2ad9, SPD_RANGE=0x2ad4, INC_RANGE=0x2ad5;
 const HR_SVC=0x180d, HR_MEAS=0x2a37, SENT=0x7fff, GPX_SEG=50;
 const DIM='#23261e', PAST='#4c5142', ACC='#CBF24E';
 const STEP=0.1;
 // version de l'app : à changer à chaque modification (aussi dans cloud.js et dans les ?v= des scripts) ; affichée dans Réglages
-const APP_VERSION='2026.10.19-4';
+const APP_VERSION='2026.10.19-5';
 
 let st={ view:'drive', connected:false, hrOn:false, speed:0, incReal:0, mainUnit:'kmh', dist:0, dplus:0, elapsed:0, hr:0,
   spdT:9.5, incT:4, grades:[], speeds:[], sessions:[], history:[], strava:null, pubId:null, shapePick:null, draft:null, buildErr:'', msg:'', msgColor:'#8A8F80',
@@ -829,7 +847,7 @@ function render(){
 
   if(s.view!=='play'){
     const t=v=>v?ACC:'#8A8F80';
-    html+='<div style="position:sticky;bottom:0;display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid #23261e;background:#0c0d0c;padding:9px 10px 18px">'+
+    html+='<div class="navbar" style="position:sticky;bottom:0;display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid #23261e;background:#0c0d0c;padding:9px 10px 18px">'+
       '<button onclick="go(\'drive\')" style="background:transparent;padding:6px 0;font:600 12.5px Barlow;letter-spacing:.04em;color:'+t(s.view==='drive')+'">Pilotage</button>'+
       '<button onclick="go(\'sessions\')" style="background:transparent;padding:6px 0;font:600 12.5px Barlow;letter-spacing:.04em;color:'+t(s.view==='sessions'||s.view==='build')+'">Séances</button>'+
       '<button onclick="go(\'history\')" style="background:transparent;padding:6px 0;font:600 12.5px Barlow;letter-spacing:.04em;color:'+t(s.view==='history')+'">Historique</button></div>';
@@ -904,7 +922,7 @@ function cmdCard(lbl,range,val,down,up){ return '<div style="background:#191b18;
 function viewDrive(){ const s=st, running=s.speed>0;
   const showFinish=s.dist>50 && !s.play;
   const hint=running?'Course en cours · l\'app tient l\'allure et la pente, la courroie reste sous ton bouton physique.':'Lance la courroie au bouton du tapis. L\'app pilote ensuite l\'allure et la pente.';
-  let h='<div style="flex:1;display:flex;flex-direction:column">'+graphCard()+
+  let h='<div class="dk-col" style="flex:1;display:flex;flex-direction:column">'+graphCard()+
     '<div onclick="cycleUnit()" style="text-align:center;padding:18px 20px 0;cursor:pointer"><div style="font:600 12px Barlow;letter-spacing:.18em;color:#8A8F80">'+heroValue().label+' <span style="color:#4c5142">⇅</span></div>'+
     '<div style="display:flex;align-items:flex-start;justify-content:center;gap:8px;margin-top:2px"><span style="font:700 132px \'Barlow Condensed\';line-height:.82;font-variant-numeric:tabular-nums">'+heroValue().big+'</span><span style="font:600 18px Barlow;color:#8A8F80;margin-top:14px">'+heroValue().unit+'</span></div>'+
     '<div style="font:600 15px \'Barlow Condensed\';color:#8A8F80;letter-spacing:.02em;margin-top:4px;font-variant-numeric:tabular-nums">'+subMetrics()+'</div></div>'+
@@ -923,7 +941,7 @@ function selBar(k){ const on=selMode[k], n=selSet[k].size;
   return h; }
 function viewSessions(){ const s=st;
   const count=s.sessions.length? s.sessions.length+(s.sessions.length>1?' séances':' séance'):'';
-  let h='<div style="flex:1;display:flex;flex-direction:column;padding:8px 18px 14px;gap:10px">'+
+  let h='<div class="dk-wide" style="flex:1;display:flex;flex-direction:column;padding:8px 18px 14px;gap:10px">'+
     '<div style="display:flex;align-items:baseline;justify-content:space-between"><div style="font:600 22px Barlow">Séances</div><div style="font:500 12.5px Barlow;color:#6d7264">'+count+'</div></div>'+
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><button onclick="newSession()" style="background:#CBF24E;border-radius:14px;padding:13px;font:600 14px Barlow;color:#14170a">+ Intervalles</button>'+
     '<button onclick="document.getElementById(\'gpxFile\').click()" style="background:#191b18;border:1px solid #26291f;border-radius:14px;padding:13px;font:600 14px Barlow;color:#C3C8B8">Importer un GPX</button></div>';
@@ -931,6 +949,7 @@ function viewSessions(){ const s=st;
   if(s.cloud==='out') h+='<button onclick="openSettings()" style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:#191b18;border:1px solid #26291f;border-radius:14px;padding:11px 13px;font:600 12.5px Barlow;color:#C3C8B8;text-align:left">Connecte-toi pour retrouver tes séances sur tous tes appareils<span style="color:#CBF24E;font-size:17px">→</span></button>';
   if(s.sessions.length) h+=selBar('sess');
   if(!s.sessions.length) h+='<div style="border:1px dashed #2e3227;border-radius:18px;padding:28px 20px;text-align:center;font:500 13.5px Barlow;color:#6d7264;line-height:1.5">Aucune séance.<br>Crée une séance à intervalles ou importe un GPX pour courir un vrai profil.</div>';
+  h+='<div class="list-grid">';
   s.sessions.forEach(x=>{ const gpx=x.type==='gpx', t=gpx?null:totals(x.segments);
     const meta=gpx?((x.totalDist/1000).toFixed(2)+' km · '+x.totalDplus+' m D+ · '+(x.hasTime?'allure du fichier':'pente seule')):(x.segments.length+' blocs · '+fmt(t.dur)+' · '+(t.dist/1000).toFixed(2)+' km · '+t.dp+' m D+');
     const bars=gpx?gpxBars(x,0).map(b=>({h:b.h,color:b.color===ACC?PAST:(b.color===DIM?'#2c3025':PAST)})):intervalBars(x.segments,-1).map(b=>({flex:b.flex,h:b.h,color:'#3c4234'}));
@@ -947,11 +966,11 @@ function viewSessions(){ const s=st;
       '<button onclick="openRename(\'sess\',\''+x.id+'\')" style="width:44px;background:#23261e;border-radius:12px;padding:11px 0;font:600 15px Barlow;color:#C3C8B8">✎</button>'+
       '<button onclick="delSession(\''+x.id+'\')" style="width:48px;background:#23261e;border-radius:12px;padding:11px 0;font:600 12.5px Barlow;color:#FF7A6B">Suppr</button></div></div>';
   });
-  return h+'</div>'; }
+  return h+'</div></div>'; }
 
 function viewBuild(){ const s=st, d=s.draft; if(!d) return '';
   const t=totals(d.segments);
-  let h='<div style="flex:1;display:flex;flex-direction:column;padding:8px 18px 14px;gap:10px">'+
+  let h='<div class="dk-col" style="flex:1;display:flex;flex-direction:column;padding:8px 18px 14px;gap:10px">'+
     '<div style="display:flex;align-items:center;justify-content:space-between"><div style="font:600 22px Barlow">'+(d.name?'Modifier':'Nouvelle séance')+'</div><button onclick="go(\'sessions\')" style="background:transparent;font:600 13px Barlow;color:#8A8F80">Annuler</button></div>'+
     '<input value="'+esc(d.name)+'" oninput="draftNameSet(this.value)" placeholder="Nom (ex. 6×2min côte)" style="background:#191b18;border:1px solid #26291f;border-radius:14px;color:#F2F4EE;padding:13px;font:600 15px Barlow;outline:none">'+
     '<div style="display:flex;align-items:flex-end;gap:2px;height:44px;background:#191b18;border:1px solid #26291f;border-radius:14px;padding:8px 10px">'+barsHtml(intervalBars(d.segments,-1).map(b=>({flex:b.flex,h:b.h,color:'#3c4234'})))+'</div>';
@@ -976,7 +995,7 @@ function viewBuild(){ const s=st, d=s.draft; if(!d) return '';
 
 function viewHistory(){ const s=st;
   const count=s.history.length? s.history.length+(s.history.length>1?' courses':' course'):'';
-  let h='<div style="flex:1;display:flex;flex-direction:column;padding:8px 18px 14px;gap:10px">'+
+  let h='<div class="dk-wide" style="flex:1;display:flex;flex-direction:column;padding:8px 18px 14px;gap:10px">'+
     '<div style="display:flex;align-items:baseline;justify-content:space-between"><div style="font:600 22px Barlow">Historique</div><div style="font:500 12.5px Barlow;color:#6d7264">'+count+'</div></div>';
   const jd=s.justDone&&s.history.find(x=>x.id===s.justDone);
   if(jd && !selMode.hist) h+='<div style="background:rgba(203,242,78,.08);border:1px solid #3d4a1c;border-radius:16px;padding:13px 14px">'+
@@ -987,6 +1006,7 @@ function viewHistory(){ const s=st;
   if(s.history.length) h+=selBar('hist');
   if(s.msg) h+='<div style="font:500 12.5px Barlow;color:'+s.msgColor+';line-height:1.4">'+esc(s.msg)+'</div>';
   if(!s.history.length) h+='<div style="border:1px dashed #2e3227;border-radius:18px;padding:28px 20px;text-align:center;font:500 13.5px Barlow;color:#6d7264;line-height:1.5">Aucune course enregistrée.<br>Elles arrivent ici avec l\'export FIT (D+ conservé) et TCX.</div>';
+  h+='<div class="list-grid">';
   s.history.forEach(hh=>{ const dt=new Date(hh.date), p=n=>String(n).padStart(2,'0');
     const dateStr=p(dt.getDate())+'/'+p(dt.getMonth()+1)+'/'+String(dt.getFullYear()).slice(2)+' · '+p(dt.getHours())+'h'+p(dt.getMinutes());
     const title=hh.name || dateStr;
@@ -1008,7 +1028,7 @@ function viewHistory(){ const s=st;
       '<button onclick="openRename(\'hist\',\''+hh.id+'\')" style="width:42px;background:#23261e;border-radius:10px;padding:9px 0;font:600 14px Barlow;color:#C3C8B8">✎</button>'+
       '<button onclick="delHist(\''+hh.id+'\')" style="width:52px;background:#23261e;border-radius:10px;padding:9px 0;font:600 12px Barlow;color:#FF7A6B">Suppr</button></div></div>';
   });
-  return h+'</div>'; }
+  return h+'</div></div>'; }
 
 function viewPlay(){ const s=st, play=s.play; if(!play) return '';
   const sess=play.session;
@@ -1025,11 +1045,13 @@ function viewPlay(){ const s=st, play=s.play; if(!play) return '';
     tot='km '+(Math.min(rp,sess.totalDist)/1000).toFixed(2)+' / '+(sess.totalDist/1000).toFixed(2)+(play.offset?' · couru '+(s.dist/1000).toFixed(2):'');
     next=nx?'à venir : pente '+nx.grade.toFixed(1)+' %':'fin du parcours'; pSpd=(play.mode==='gpx'&&seg.spd!=null)?seg.spd.toFixed(1):s.spdT.toFixed(1); pInc=String(Math.round(seg.grade)); }
   let h='<div style="flex:1;display:flex;flex-direction:column">'+
-    '<div style="padding:2px 18px 0;display:flex;align-items:baseline;justify-content:space-between"><div style="font:600 16px Barlow">'+esc(sess.name)+'</div>'+modeHtml+'</div>';
+    '<div style="padding:2px 18px 0;display:flex;align-items:baseline;justify-content:space-between"><div style="font:600 16px Barlow">'+esc(sess.name)+'</div>'+modeHtml+'</div>'+
+    '<div class="'+(play.type==='gpx'&&sess.video?'pl-grid':'dk-col pl-one')+'"><div class="pl-left">';
   if(play.type==='gpx' && sess.video){ h+=videoSlot(sess);
     if(vidFiles[sess.id] && !DIR_API && OPFS_API && !vidKept[sess.id]){ const go=(sess.video.files.reduce((a,f)=>a+f.size,0)/1e9).toFixed(1);
       h+= st.keepProg&&st.keepProg.id===sess.id ? '<div style="margin:8px 18px 0;font:600 12.5px Barlow;color:#C3C8B8">Copie dans l\'app… '+Math.round(st.keepProg.p*100)+' %</div>'
         : '<button onclick="keepInApp(\''+sess.id+'\')" style="margin:8px 18px 0;background:#191b18;border:1px solid #26291f;border-radius:12px;padding:10px;font:600 12.5px Barlow;color:#C3C8B8">Garder la vidéo dans l\'app ('+go+' Go) : plus besoin de la choisir</button>'; } }
+  h+='</div><div class="pl-right">';
   if(!play.started) h+='<div style="margin:10px 18px 0;background:rgba(203,242,78,.09);border:1px solid #3d4a1c;border-radius:14px;padding:11px 13px;display:flex;align-items:center;gap:10px">'+
     '<span style="flex:1;font:600 12.5px Barlow;color:#CBF24E;line-height:1.4">Séance chargée · lance la courroie au bouton du tapis</span>'+
     '<button onclick="unloadPlay()" title="Décharger" style="background:transparent;font:500 20px Barlow;color:#CBF24E;line-height:1;padding:0 2px">×</button></div>'+
@@ -1054,7 +1076,7 @@ function viewPlay(){ const s=st, play=s.play; if(!play) return '';
   if(play.type==='gpx' && play.started) h+='<button onclick="routeSkip('+SKIP_M+')" style="margin:0 18px 10px;background:#191b18;border:1px solid #26291f;border-radius:16px;padding:12px;font:600 13.5px Barlow;color:#C3C8B8">Sauter 500 m du parcours <span style="color:#6d7264">(ta distance courue ne change pas)</span></button>';
   h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 18px 14px">'+
     '<button onclick="playPause()" style="background:#23261e;border-radius:16px;padding:15px;font:600 15px Barlow;color:#F2F4EE">'+(play.paused?'Reprendre':'Pause')+'</button>'+
-    '<button onclick="doStop()" style="background:transparent;border:1px solid #4a2f2b;border-radius:16px;padding:15px;font:600 15px Barlow;color:#FF7A6B">Terminer</button></div></div>';
+    '<button onclick="doStop()" style="background:transparent;border:1px solid #4a2f2b;border-radius:16px;padding:15px;font:600 15px Barlow;color:#FF7A6B">Terminer</button></div></div></div></div>';
   return h; }
 
 function cloudRow(){ const s=st;
@@ -1108,6 +1130,6 @@ window.addEventListener('resize', placeVideo);
 render();
 loadKnown();
 </script>
-<script type="module" src="cloud.js?v=2026.10.19-4"></script>
+<script type="module" src="cloud.js?v=2026.10.19-5"></script>
 </body>
 </html>
