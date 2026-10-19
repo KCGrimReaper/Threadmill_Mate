@@ -46,6 +46,10 @@ Pas de chaîne de build : site statique (racine publiée telle quelle par Netlif
 
 ## Vérification
 
+**Version** : `APP_VERSION` (index.html) = `TM_CLOUD_VERSION` (cloud.js) = `VERSION` (gopro.js) = `?v=` des balises `<script>` : **à changer partout à chaque modification** (forme `AAAA.MM.JJ-n`). Sans cela le navigateur garde d'anciens `cloud.js` / `gopro.js` en cache avec un `index.html` récent (cause des zones cardio vidées et de l'ordre des tuiles annulé le 19/10/2026). Réglages affiche la version et alerte si les fichiers ne correspondent pas.
+
+Synchro avec le vrai SDK : émulateurs Firebase (`firebase-tools`, Java présent) + `window.__tmEmulator` (lu par cloud.js : `connectAuthEmulator` / `connectFirestoreEmulator`, `window.__tmTest`), SDK servi depuis `node_modules/firebase/firebase-*.js` à la place de gstatic ; anciennes versions de l'app tirées de git (`git archive <commit>`) pour simuler un autre appareil pas à jour.
+
 FIT : relire le fichier produit avec le décodeur officiel `@garmin/fitsdk` (npm) : intégrité (CRC), session `running` / `virtualActivity`, distance = distance courue, positions = parcours. Publication Strava : intercepter `fetch` vers `/.netlify/functions/strava` pour lire exactement ce qui part (nom, description, fichier en base64).
 
 Pas de tests dans le dépôt. Avant de pousser : `node --check cloud.js gopro.js`, contrôle de la syntaxe du script d'`index.html`, et un passage dans Chromium (Playwright, `executablePath` vers le Chromium installé) avec un faux SDK Firebase injecté par `window.__tmFirebaseLibs` (lu par `cloud.js` à la place des imports gstatic) pour la synchro.

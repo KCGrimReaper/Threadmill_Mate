@@ -7,6 +7,7 @@
 //   users/{uid}/chunks/{kind}_{id}_{u}_{n}  morceaux des gros éléments (GPX longs), limite Firestore 1 Mo / document
 // Chaque élément porte `u` (horodatage de sa dernière modification) : le plus récent gagne.
 // Une suppression laisse une pierre tombale { del: true } pour ne pas ressusciter l'élément ailleurs.
+window.TM_CLOUD_VERSION = '2026.10.19-2';   // doit valoir APP_VERSION d'index.html (sinon : ancien fichier en cache)
 const V = '10.12.2', BASE = 'https://www.gstatic.com/firebasejs/' + V + '/';
 const CH = 700000;            // caractères par document (marge sous 1 Mo)
 const KINDS = ['sessions', 'history'], SETTINGS = ['unit', 'strava', 'hud', 'hrz'];
@@ -26,6 +27,8 @@ async function start() {
   let db;
   try { db = F.initializeFirestore(fb, { localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }) }); }
   catch (e) { db = F.getFirestore(fb); }
+  // tests seulement : émulateurs Firebase locaux (jamais actif dans l'app : window.__tmEmulator n'existe pas)
+  if (window.__tmEmulator) { A.connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true }); F.connectFirestoreEmulator(db, '127.0.0.1', 8085); window.__tmTest = { A, F, auth, db }; }
 
   let uid = null, meta = {}, unsub = [], merged = false, settingsMerged = false;
   const itemRef = key => F.doc(db, 'users', uid, 'items', key);
