@@ -187,7 +187,7 @@ function launch(id){ const s=st.sessions.find(x=>x.id===id); if(!s) return;
   st.spdT = s.type==='gpx' ? (first.spd||st.spdT) : first.spd;
   st.incT = s.type==='gpx' ? first.grade : first.inc;
   sendControl([0x07]); st.vfull=false; if(s.video) restoreVideo(s); render(); }
-function doStop(){ if(st.play) sendSpeed(spdMin); archiveRun(); st.play=null; st.vfull=false; st.view='history'; render(); }
+function doStop(){ if(st.play) sendSpeed(spdMin); if(!archiveRun()) st.justDone=null; st.play=null; st.vfull=false; st.view='history'; render(); }
 // position sur le parcours : distance courue + décalage de la séance (départ au km X, passages sautés) ;
 // la distance courue (st.dist) reste la vraie, c'est elle qui part dans l'historique et sur Strava
 function rpos(){ return st.dist+(st.play&&st.play.offset||0); }
@@ -200,16 +200,17 @@ function segIdxAtDist(sess,d){ const segs=sess.segs; for(let i=0;i<segs.length;i
 
 // ---------- historique / export ----------
 function unloadPlay(){ st.play=null; st.vfull=false; st.view='drive'; render(); }
+// renvoie true si la course a été enregistrée ; sinon le bandeau « Séance terminée » est retiré (il montrait la course précédente)
 function archiveRun(){
-  if(sim && !simRecord){ rec=[]; return; }   // course simulée : dans l'historique seulement si « Enregistrer (tester Strava) »
-  if(rec.length<2) return;
+  if(sim && !simRecord){ const had=rec.length>1; rec=[]; if(had){ st.justDone=null; st.msg='Séance simulée : non enregistrée (active « Enregistrer (tester Strava) » pour la garder).'; st.msgColor='#E8C547'; } return false; }
+  if(rec.length<2) return false;
   const s=[]; for(let i=0;i<rec.length;i+=5) s.push(rec[i]); const last=rec[rec.length-1], first=rec[0];
   if(s[s.length-1]!==last) s.push(last);
   const nm=st.play?st.play.session.name:'';
   const entry={id:'r'+Date.now(), date:first.t, name:sim?'[Test] '+(nm||'Simulation'):nm, dist:Math.round(last.dist),
     dplus:Math.round(last.alt), dur:Math.round((new Date(last.t)-new Date(first.t))/1000), route:activeRoute||null, samples:s};
-  st.justDone=entry.id; cloudPut('history',entry); const arr=[entry].concat(st.history).slice(0,50); persist('tm_history',arr); st.history=arr; rec=[]; }
-function finishRun(){ archiveRun(); st.view='history'; st.dist=0; st.dplus=0; st.elapsed=0; st.grades=[]; render(); }
+  st.justDone=entry.id; cloudPut('history',entry); const arr=[entry].concat(st.history).slice(0,50); persist('tm_history',arr); st.history=arr; rec=[]; return true; }
+function finishRun(){ if(!archiveRun()) st.justDone=null; st.view='history'; st.dist=0; st.dplus=0; st.elapsed=0; st.grades=[]; render(); }
 function delHist(id){ st.history=st.history.filter(x=>x.id!==id); persist('tm_history',st.history); cloudDel('history',id); render(); }
 function toggleSelMode(k){ selMode[k]=!selMode[k]; selSet[k].clear(); render(); }
 function selToggle(k,id){ const s=selSet[k]; if(s.has(id)) s.delete(id); else s.add(id); render(); }
@@ -350,7 +351,7 @@ function cloudDel(kind,id){ if(window.TMCloud) TMCloud.del(kind,id); }
 // réglages synchronisés champ par champ (unit, strava), chacun avec son horodatage tm_<champ>_u (0 = jamais modifié depuis la synchro)
 function settingU(f){ return parseInt(localStorage.getItem('tm_'+f+'_u')||'0',10)||0; }
 function settingsChanged(f){ try{ localStorage.setItem('tm_'+f+'_u', String(Date.now())); }catch(e){} if(window.TMCloud) TMCloud.putSettings(); }
-function softRender(){ if(st.view==='build'||renaming) return; render(); }   // ne pas casser une saisie en cours
+function softRender(){ if(st.view==='build'||renaming||st.hrz) return; render(); }   // ne pas casser une saisie en cours
 function cloudLogin(){ if(window.TMCloud){ st.cloudInfo=''; TMCloud.login(); } }
 function cloudLogout(){ if(window.TMCloud) TMCloud.logout(); }
 window.tmApp={
@@ -363,16 +364,17 @@ window.tmApp={
     st[k]=k==='history'?arr.slice(0,50):arr; persist(LS_KEY[k],st[k]); softRender(); },
   remove(k,id){ st[k]=st[k].filter(x=>x.id!==id); persist(LS_KEY[k],st[k]); softRender(); },
   settings:()=>{ let hud=null; try{ hud=JSON.parse(localStorage.getItem('tm_hud')||'null'); }catch(e){}
-    return {unit:localStorage.getItem('tm_unit')||null, unitU:settingU('unit'), strava:st.strava||null, stravaU:settingU('strava'), hud, hudU:settingU('hud')}; },
+    return {unit:localStorage.getItem('tm_unit')||null, unitU:settingU('unit'), strava:st.strava||null, stravaU:settingU('strava'), hud, hudU:settingU('hud'), hrz:hrzCfg(), hrzU:settingU('hrz')}; },
   applySettings(d){   // d = { unit?: {v,u}, strava?: {v,u} }
     try{
       if(d.unit){ if(d.unit.v) st.mainUnit=d.unit.v; localStorage.setItem('tm_unit',st.mainUnit); localStorage.setItem('tm_unit_u',String(d.unit.u||0)); }
+      if(d.hrz){ if(d.hrz.v) localStorage.setItem('tm_hrz',JSON.stringify(d.hrz.v)); else localStorage.removeItem('tm_hrz'); localStorage.setItem('tm_hrz_u',String(d.hrz.u||0)); }
       if(d.hud){ if(d.hud.v) localStorage.setItem('tm_hud',JSON.stringify(d.hud.v)); else localStorage.removeItem('tm_hud'); localStorage.setItem('tm_hud_u',String(d.hud.u||0)); }
       if(d.strava){ st.strava=d.strava.v||null; if(st.strava) localStorage.setItem('tm_strava',JSON.stringify(st.strava)); else localStorage.removeItem('tm_strava'); localStorage.setItem('tm_strava_u',String(d.strava.u||0)); }
     }catch(e){}
     softRender(); },
   switchUser(uid){ const last=localStorage.getItem('tm_cloud_uid');
-    if(last && last!==uid){ st.sessions=[]; st.history=[]; st.strava=null; ['tm_sessions','tm_history','tm_strava','tm_unit_u','tm_strava_u','tm_hud','tm_hud_u'].forEach(k=>localStorage.removeItem(k)); }
+    if(last && last!==uid){ st.sessions=[]; st.history=[]; st.strava=null; ['tm_sessions','tm_history','tm_strava','tm_unit_u','tm_strava_u','tm_hud','tm_hud_u','tm_hrz','tm_hrz_u'].forEach(k=>localStorage.removeItem(k)); }
     try{ localStorage.setItem('tm_cloud_uid',uid); }catch(e){} },
   setUser(u){ st.user=u; softRender(); },
   cloudState(state,info){ st.cloud=state; if(info!=null) st.cloudInfo=info; else if(state!=='error') st.cloudInfo=''; softRender(); }
@@ -514,7 +516,12 @@ function videoSlot(sess){
   else h=card('videoLoad()','Vidéo : choisir '+names,OPFS_API?'puis « Garder dans l\'app » pour ne plus avoir à la choisir':'');
   return h+(st.vidMsg?'<div style="margin:6px 18px 0;font:500 12px Barlow;color:#FF7A6B">'+esc(st.vidMsg)+'</div>':''); }
 function toggleGpxPace(){ const p=st.play; if(!p||p.type!=='gpx') return; p.mode=p.mode==='gpx'?'free':'gpx'; render(); }
-function toggleVideoFull(){ st.vfull=!st.vfull; render(); }
+function toggleVideoFull(){ if(st.vfull){ exitVideoFull(); return; } st.vfull=true; render();
+  // plein écran du navigateur (barres masquées) et, sur téléphone, écran tourné à l'horizontale ; sans effet si refusé
+  const el=document.documentElement;
+  if(el.requestFullscreen && !document.fullscreenElement) el.requestFullscreen({navigationUI:'hide'}).then(()=>{ try{ screen.orientation.lock('landscape').catch(()=>{}); }catch(e){} }).catch(()=>{}); }
+function exitVideoFull(){ st.vfull=false; hudCfg=false; if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(()=>{}); try{ screen.orientation.unlock(); }catch(e){} render(); }
+document.addEventListener('fullscreenchange',()=>{ if(!document.fullscreenElement && st.vfull){ st.vfull=false; hudCfg=false; render(); } });
 // pose la vidéo (élément permanent, hors du rendu) sur son emplacement, ou en plein écran avec les chiffres par-dessus
 function placeVideo(){ const box=document.getElementById('vbox'), slot=document.getElementById('vslot'), app=document.getElementById('app'), hud=document.getElementById('vhud');
   const on=!!(st.play && st.view==='play' && slot);
@@ -527,6 +534,34 @@ function placeVideo(){ const box=document.getElementById('vbox'), slot=document.
   hud.innerHTML='<div style="position:absolute;right:8px;bottom:8px;background:rgba(0,0,0,.55);border-radius:8px;padding:4px 8px;font:600 11px Barlow;color:#F2F4EE">plein écran</div>'+vidOutside(); }
 function vidOutside(){ return vidCur.out?'<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);font:600 13px Barlow;color:#C3C8B8;text-align:center;padding:12px">'+vidCur.out+'</div>':''; }
 // ---------- tableau de bord plein écran (façon Rouvy) : infos au choix, section en cours, profil et position ----------
+// ---------- zones cardio : FC max + début des zones 2 à 5 (bpm), réglage synchronisé « hrz » (tm_hrz) ----------
+const HRZ_COL=['#8FB8DE','#6CCB5F','#E8C547','#FF9F5A','#FF5A5A'], HRZ_PCT=[0.6,0.7,0.8,0.9];
+function hrzCfg(){ try{ const v=JSON.parse(localStorage.getItem('tm_hrz')||'null'); if(v&&v.max>0&&Array.isArray(v.z)&&v.z.length===4) return v; }catch(e){} return null; }
+function hrzDefault(max){ return HRZ_PCT.map(p=>Math.round(max*p)); }
+function hrZone(hr){ const c=hrzCfg(); if(!c||!(hr>0)) return null; let n=1; c.z.forEach((b,i)=>{ if(hr>=b) n=i+2; }); return {n, col:HRZ_COL[n-1]}; }
+function hrzOpen(){ const c=hrzCfg(); st.hrz={max:c?c.max:'', z:c?c.z.slice():['','','',''], err:''}; render(); }
+function hrzMax(v){ const m=Math.round(num(v)); st.hrz.max=m||''; if(m>=100&&m<=230) st.hrz.z=hrzDefault(m); render(); }
+function hrzEdit(i,v){ st.hrz.z[i]=Math.round(num(v))||''; }
+function hrzSave(){ const h=st.hrz, max=+h.max, z=h.z.map(Number);
+  if(!(max>=100&&max<=230)){ h.err='FC max entre 100 et 230 bpm.'; render(); return; }
+  if(z.some(b=>!(b>40&&b<=max)) || z.some((b,i)=>i&&b<=z[i-1])){ h.err='Les débuts de zone doivent monter de la zone 2 à la zone 5, sans dépasser la FC max.'; render(); return; }
+  try{ localStorage.setItem('tm_hrz',JSON.stringify({max,z})); }catch(e){} settingsChanged('hrz'); st.hrz=null; render(); }
+function hrzClear(){ try{ localStorage.removeItem('tm_hrz'); }catch(e){} settingsChanged('hrz'); st.hrz=null; render(); }
+function viewHrz(){ const h=st.hrz, max=+h.max||0;
+  const inp=(val,on,ph)=>'<input type="number" inputmode="numeric" value="'+val+'" placeholder="'+ph+'" onchange="'+on+'" style="width:100%;min-width:0;background:#23261e;border:1px solid #2e3227;border-radius:9px;color:#F2F4EE;padding:10px;font:600 16px Barlow;outline:none">';
+  const row=(i)=>'<div style="display:flex;align-items:center;gap:10px;margin-top:8px"><span style="width:12px;height:12px;border-radius:3px;background:'+HRZ_COL[i]+'"></span>'+
+    '<span style="flex:1;font:600 13.5px Barlow">Zone '+(i+1)+'</span><span style="font:500 12px Barlow;color:#8A8F80;width:84px;text-align:right">'+(i===0?'en dessous':'à partir de')+'</span>'+
+    '<div style="width:84px">'+(i===0?'<div style="text-align:center;font:600 14px Barlow;color:#8A8F80">'+(h.z[0]?'< '+h.z[0]:'—')+'</div>':inp(h.z[i-1],'hrzEdit('+(i-1)+',this.value)','bpm'))+'</div></div>';
+  return '<div style="position:absolute;inset:0;background:rgba(7,8,7,.72);display:flex;align-items:flex-end;z-index:31" onclick="if(event.target===this){st.hrz=null;render()}">'+
+    '<div style="width:100%;max-height:94vh;overflow:auto;background:#161816;border-top:1px solid #26291f;border-radius:26px 26px 0 0;padding:18px 18px 24px">'+
+    '<div style="font:600 19px Barlow;margin-bottom:4px">Zones cardio</div>'+
+    '<div style="font:500 12.5px Barlow;color:#8A8F80;margin-bottom:12px;line-height:1.45">Entre ta FC max : les zones se calculent (60 / 70 / 80 / 90 %). Tu peux ensuite corriger chaque zone (valeurs de ta montre ou d\'un test d\'effort).</div>'+
+    '<div style="display:flex;align-items:center;gap:10px"><span style="flex:1;font:600 14px Barlow">FC max</span><div style="width:110px">'+inp(h.max,'hrzMax(this.value)','bpm')+'</div></div>'+
+    [0,1,2,3,4].map(row).join('')+
+    (max?'<div style="display:flex;height:8px;border-radius:4px;overflow:hidden;margin-top:14px">'+HRZ_COL.map(c=>'<div style="flex:1;background:'+c+'"></div>').join('')+'</div>':'')+
+    (h.err?'<div style="font:600 12.5px Barlow;color:#FF7A6B;margin-top:10px">'+esc(h.err)+'</div>':'')+
+    '<button onclick="hrzSave()" style="width:100%;margin-top:14px;background:'+ACC+';border-radius:14px;padding:14px;font:600 14px Barlow;color:#14170a">Enregistrer</button>'+
+    (hrzCfg()?'<button onclick="hrzClear()" style="width:100%;margin-top:8px;background:#23261e;border-radius:14px;padding:13px;font:600 13.5px Barlow;color:#FF7A6B">Retirer les zones</button>':'')+'</div></div>'; }
 const HUD_TILES={
   speed:['VITESSE',s=>s.speed.toFixed(1),'km/h'],
   pace:['ALLURE',s=>fmtPace(s.speed>0?60/s.speed:0),'/km'],
@@ -537,13 +572,15 @@ const HUD_TILES={
   time:['TEMPS',s=>fmt(s.elapsed),''],
   eta:['ARRIVÉE DANS',s=>{ const r=Math.max(0,s.play.session.totalDist-rpos()); return s.speed>0?fmt(r/(s.speed/3.6)):'—'; },''],
   hr:['FC',s=>s.hr>0?String(s.hr):'—','bpm'],
+  zone:['ZONE FC',s=>{ const z=hrZone(s.hr); return z?'Z'+z.n:'—'; },''],
   dplus:['D+',s=>String(Math.round(s.dplus)),'m'],
   ele:['ALTITUDE',s=>{ const t=s.play.session.track; return t&&t.length>1?String(Math.round(posAt(t,rpos()).ele)):'—'; },'m'] };
 const HUD_DEFAULT=['speed','grade','dist','rest','time','hr'];
 let hudCfg=false;
 function hudTiles(){ try{ const v=JSON.parse(localStorage.getItem('tm_hud')||'null'); if(Array.isArray(v)){ const k=v.filter(x=>HUD_TILES[x]); if(k.length) return k; } }catch(e){} return HUD_DEFAULT; }
-function hudToggle(k){ const v=hudTiles().slice(), i=v.indexOf(k); if(i>=0){ if(v.length>1) v.splice(i,1); } else if(v.length<8) v.push(k);
-  try{ localStorage.setItem('tm_hud',JSON.stringify(v)); }catch(e){} settingsChanged('hud'); render(); }
+function hudSave(v){ try{ localStorage.setItem('tm_hud',JSON.stringify(v)); }catch(e){} settingsChanged('hud'); render(); }
+function hudToggle(k){ const v=hudTiles().slice(), i=v.indexOf(k); if(i>=0){ if(v.length>1) v.splice(i,1); } else v.push(k); hudSave(v); }
+function hudMove(k,d){ const v=hudTiles().slice(), i=v.indexOf(k), j=i+d; if(i<0||j<0||j>=v.length) return; v.splice(i,1); v.splice(j,0,k); hudSave(v); }
 // profil du tracé (altitude tous les 50 m) et sections montée / plat / descente (pente lissée sur 200 m, sections d'au moins 300 m)
 const routeCache=new WeakMap();
 function routeInfo(sess){ let r=routeCache.get(sess); if(r) return r;
@@ -579,25 +616,31 @@ function hudSection(sess){ const rp=rpos(), r=routeInfo(sess), i=r.secs.findInde
     '<div style="height:4px;background:rgba(255,255,255,.15);border-radius:2px;margin-top:6px"><div style="height:4px;width:'+pr.toFixed(0)+'%;background:'+col+';border-radius:2px"></div></div>'+
     '<div style="font:500 11.5px Barlow;color:#8A8F80;margin-top:6px">'+(nx?'Ensuite : '+secLabel(nx).toLowerCase():'Dernière section')+'</div></div>'; }
 function videoHud(){ const s=st, sess=s.play.session, stop='event.stopPropagation();';
-  const tiles=hudTiles().map(k=>{ const t=HUD_TILES[k]; return '<div style="background:rgba(10,11,10,.62);border-radius:12px;padding:7px 12px;min-width:84px">'+
-    '<div style="font:600 10px Barlow;letter-spacing:.12em;color:#C3C8B8">'+t[0]+'</div><div style="font:600 30px \'Barlow Condensed\';line-height:1;font-variant-numeric:tabular-nums">'+t[1](s)+
+  const z=hrZone(s.hr);
+  const tiles=hudTiles().map(k=>{ const t=HUD_TILES[k], zc=(k==='hr'||k==='zone')&&z;
+    return '<div style="background:'+(zc?z.col+'38':'rgba(10,11,10,.62)')+';border-radius:12px;padding:7px 12px;min-width:84px'+(zc?';box-shadow:inset 0 -4px 0 '+z.col:'')+'">'+
+    '<div style="font:600 10px Barlow;letter-spacing:.12em;color:#C3C8B8">'+t[0]+(k==='hr'&&z?' · Z'+z.n:'')+'</div><div style="font:600 30px \'Barlow Condensed\';line-height:1;font-variant-numeric:tabular-nums">'+t[1](s)+
     (t[2]?'<span style="font:600 12px Barlow;color:#8A8F80;margin-left:3px">'+t[2]+'</span>':'')+'</div></div>'; }).join('');
-  const pill=(on,l)=>'<button onclick="'+stop+on+'" style="background:rgba(10,11,10,.62);border-radius:99px;padding:8px 13px;font:600 12.5px Barlow;color:#F2F4EE">'+l+'</button>';
+  const pill=(on,l)=>'<button onclick="'+stop+on+'" style="background:rgba(10,11,10,.62);border-radius:99px;padding:8px 13px;font:600 12.5px Barlow;color:#F2F4EE;white-space:nowrap">'+l+'</button>';
   const sp=(d,l,acc)=>'<button class="stepbtn" onclick="'+stop+'adjSpd('+d+')" style="width:58px;height:58px;border-radius:16px;background:'+(acc?ACC:'rgba(10,11,10,.7)')+';font:400 30px Barlow;color:'+(acc?'#14170a':ACC)+'">'+l+'</button>';
   let h=vidOutside()+'<div style="position:absolute;inset:0;padding:calc(10px + env(safe-area-inset-top)) 12px calc(10px + env(safe-area-inset-bottom));display:flex;flex-direction:column;justify-content:space-between;color:#F2F4EE;pointer-events:none">'+
     '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;pointer-events:auto"><div style="display:flex;flex-wrap:wrap;gap:6px">'+tiles+'</div>'+
-    '<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">'+pill('st.vfull=false;hudCfg=false;render()','Quitter')+pill('hudCfg=true;render()','Infos')+(s.play.started?pill('routeSkip('+SKIP_M+')','+500 m'):'')+'</div></div>'+
+    '<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">'+pill('exitVideoFull()','Quitter')+pill('hudCfg=true;render()','Infos')+(s.play.started?pill('routeSkip('+SKIP_M+')','+500 m'):'')+'</div></div>'+
     '<div style="pointer-events:auto"><div style="display:flex;justify-content:space-between;align-items:flex-end;gap:8px;margin-bottom:8px">'+hudSection(sess)+
     '<div style="display:flex;align-items:center;gap:8px">'+sp(-STEP,'−')+'<div style="text-align:center;min-width:54px"><div style="font:600 28px \'Barlow Condensed\';line-height:1;color:'+ACC+'">'+s.spdT.toFixed(1)+'</div><div style="font:600 9.5px Barlow;letter-spacing:.1em;color:#C3C8B8">CIBLE</div></div>'+sp(STEP,'+',1)+'</div></div>'+
     '<div style="background:rgba(10,11,10,.55);border-radius:12px;padding:6px 8px 4px">'+hudProfile(sess)+
     '<div style="display:flex;justify-content:space-between;font:600 11px Barlow;color:#C3C8B8;margin-top:2px"><span>0 km</span><span>km '+(rpos()/1000).toFixed(2)+' / '+(sess.totalDist/1000).toFixed(2)+' km</span></div></div></div></div>';
-  if(hudCfg){ const sel=hudTiles();
-    h+='<div onclick="event.stopPropagation()" style="position:absolute;inset:0;background:rgba(7,8,7,.88);display:flex;align-items:center;justify-content:center;padding:20px;z-index:2">'+
-      '<div style="width:100%;max-width:440px"><div style="font:600 19px Barlow;margin-bottom:4px">Tableau de bord</div>'+
-      '<div style="font:500 12.5px Barlow;color:#8A8F80;margin-bottom:12px">Choisis les infos affichées (8 au plus), dans l\'ordre où tu les coches.</div>'+
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'+Object.keys(HUD_TILES).map(k=>{ const n=sel.indexOf(k);
-        return '<button onclick="hudToggle(\''+k+'\')" style="display:flex;justify-content:space-between;align-items:center;background:'+(n>=0?'rgba(203,242,78,.14)':'#191b18')+';border:1px solid '+(n>=0?ACC:'#26291f')+';border-radius:12px;padding:12px;font:600 13px Barlow;color:'+(n>=0?ACC:'#C3C8B8')+'">'+HUD_TILES[k][0]+'<span>'+(n>=0?n+1:'')+'</span></button>'; }).join('')+'</div>'+
-      '<button onclick="hudCfg=false;render()" style="width:100%;margin-top:12px;background:'+ACC+';border-radius:14px;padding:14px;font:600 14px Barlow;color:#14170a">Terminé</button></div></div>';
+  if(hudCfg){ const sel=hudTiles(), rest=Object.keys(HUD_TILES).filter(k=>sel.indexOf(k)<0);
+    const ib=(on,l,dis)=>'<button '+(dis?'disabled ':'')+'onclick="'+on+'" style="width:38px;height:36px;border-radius:10px;background:#23261e;font:600 16px Barlow;color:'+(dis?'#3a3f33':'#C3C8B8')+'">'+l+'</button>';
+    h+='<div onclick="event.stopPropagation()" style="position:absolute;inset:0;background:rgba(7,8,7,.9);display:flex;align-items:center;justify-content:center;padding:16px;z-index:2;overflow:auto">'+
+      '<div style="width:100%;max-width:460px;max-height:100%;overflow:auto"><div style="font:600 19px Barlow;margin-bottom:4px">Tableau de bord</div>'+
+      '<div style="font:500 12.5px Barlow;color:#8A8F80;margin-bottom:10px">Infos affichées, dans l\'ordre de l\'écran : ↑ ↓ pour les déplacer, ✕ pour les retirer.</div>'+
+      sel.map((k,n)=>'<div style="display:flex;align-items:center;gap:6px;background:#191b18;border:1px solid #26291f;border-radius:12px;padding:6px 6px 6px 12px;margin-bottom:6px">'+
+        '<span style="font:600 12px Barlow;color:#6d7264;width:16px">'+(n+1)+'</span><span style="flex:1;font:600 13.5px Barlow;color:'+ACC+'">'+HUD_TILES[k][0]+'</span>'+
+        ib('hudMove(\''+k+'\',-1)','↑',n===0)+ib('hudMove(\''+k+'\',1)','↓',n===sel.length-1)+ib('hudToggle(\''+k+'\')','✕',sel.length<2)+'</div>').join('')+
+      (rest.length?'<div style="font:500 12.5px Barlow;color:#8A8F80;margin:10px 0 6px">Ajouter :</div><div style="display:flex;flex-wrap:wrap;gap:6px">'+
+        rest.map(k=>'<button onclick="hudToggle(\''+k+'\')" style="background:#191b18;border:1px dashed #3a3f33;border-radius:99px;padding:8px 12px;font:600 12.5px Barlow;color:#C3C8B8">+ '+HUD_TILES[k][0]+'</button>').join('')+'</div>':'')+
+      '<button onclick="hudCfg=false;render()" style="width:100%;margin-top:14px;background:'+ACC+';border-radius:14px;padding:14px;font:600 14px Barlow;color:#14170a">Terminé</button></div></div>';
   }
   return h; }
 // toutes les 250 ms : instant de la vidéo pour la distance courue (interpolée entre deux mesures), vitesse de lecture
@@ -690,7 +733,7 @@ function tick(){
     st.grades.push(curGrade);
     st.speeds.push(st.speed); }
   playAdvance();
-  if(st.view==='drive'||st.view==='play') render();
+  if((st.view==='drive'||st.view==='play') && !st.hrz) render();
 }
 function playAdvance(){ const play=st.play; if(!play||play.paused) return;
   let justStarted=false;
@@ -745,6 +788,7 @@ function render(){
   if(renaming) html+=viewRename();
   if(st.shapePick) html+=viewShape();
   if(st.vidSheet) html+=viewVideoSheet();
+  if(st.hrz) html+=viewHrz();
   document.getElementById('ui').innerHTML=html;
   placeVideo(); syncRestore();
 }
@@ -766,7 +810,12 @@ function viewRename(){ const cur = renaming.kind==='sess' ? (st.sessions.find(x=
     '<button onclick="doRename()" style="background:#CBF24E;border-radius:14px;padding:14px;font:600 14px Barlow;color:#14170a">Renommer</button></div></div></div>'; }
 
 function statBar(sz){ const s=st; return '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#26291f;margin:'+(sz>30?'14':'12')+'px 18px 0;border-radius:14px;overflow:hidden">'+
-  stat('KM',(s.dist/1000).toFixed(2),sz)+stat('D+',String(Math.round(s.dplus)),sz)+stat('TEMPS',fmt(s.elapsed),sz)+stat('FC',s.hr>0?String(s.hr):'—',sz,'#FF7A6B')+'</div>'; }
+  stat('KM',(s.dist/1000).toFixed(2),sz)+stat('D+',String(Math.round(s.dplus)),sz)+stat('TEMPS',fmt(s.elapsed),sz)+statFc(sz)+'</div>'; }
+function statFc(sz){ const z=hrZone(st.hr);
+  if(!z) return stat('FC',st.hr>0?String(st.hr):'—',sz,'#FF7A6B');
+  return '<div style="background:#191b18;padding:'+(sz>30?'11':'10')+'px 4px;text-align:center;box-shadow:inset 0 -4px 0 '+z.col+'">'+
+    '<div style="font:600 10.5px Barlow;letter-spacing:.1em;color:'+z.col+'">FC · Z'+z.n+'</div>'+
+    '<div style="font:600 '+sz+'px \'Barlow Condensed\';line-height:1;color:'+z.col+';font-variant-numeric:tabular-nums">'+st.hr+'</div></div>'; }
 function stat(lbl,val,sz,col){ return '<div style="background:#191b18;padding:'+(sz>30?'11':'10')+'px 4px;text-align:center">'+
   '<div style="font:600 10.5px Barlow;letter-spacing:.1em;color:#8A8F80">'+lbl+'</div>'+
   '<div style="font:600 '+sz+'px \'Barlow Condensed\';line-height:1'+(col?';color:'+col:'')+';font-variant-numeric:tabular-nums">'+val+'</div></div>'; }
@@ -990,6 +1039,10 @@ function viewSheet(){ const s=st, hrLive=s.hrOn&&s.hr>=0;
     '<span style="width:9px;height:9px;border-radius:99px;background:'+(sim?'#E8C547':'#4c5142')+'"></span>'+
     '<div style="flex:1;min-width:0"><div style="font:600 14.5px Barlow">Simulation</div><div style="font:500 12px Barlow;color:#8A8F80">Essayer séances et vidéo sans tapis</div></div>'+
     '<button onclick="simToggle()" style="background:'+(sim?'#23261e':'#E8C547')+';border-radius:11px;padding:10px 14px;font:600 13px Barlow;color:'+(sim?'#FF7A6B':'#14170a')+'">'+(sim?'Arrêter':'Activer')+'</button></div>'+
+    '<div style="display:flex;align-items:center;gap:12px;background:#191b18;border:1px solid #26291f;border-radius:16px;padding:13px 14px;margin-bottom:14px">'+
+    '<span style="display:flex;width:30px;height:9px;border-radius:3px;overflow:hidden">'+HRZ_COL.map(c=>'<span style="flex:1;background:'+(hrzCfg()?c:'#4c5142')+'"></span>').join('')+'</span>'+
+    '<div style="flex:1;min-width:0"><div style="font:600 14.5px Barlow">Zones cardio</div><div style="font:500 12px Barlow;color:#8A8F80">'+(hrzCfg()?'FC max '+hrzCfg().max+' bpm · couleur de la zone sur la FC':'Couleur de ta zone sur la FC pendant la course')+'</div></div>'+
+    '<button onclick="hrzOpen()" style="background:#23261e;border-radius:11px;padding:10px 14px;font:600 13px Barlow;color:#C3C8B8">'+(hrzCfg()?'Modifier':'Régler')+'</button></div>'+
     cloudRow()+
     '<div style="font:500 12px Barlow;color:#6d7264;line-height:1.5">Le démarrage de la courroie reste sur le bouton physique du tapis. L\'app pilote l\'allure et la pente, et enregistre la course.</div></div></div>'; }
 
