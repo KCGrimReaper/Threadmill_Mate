@@ -26,15 +26,15 @@
 <div id="app"><div id="ui"></div><div id="vbox" onclick="if(!st.vfull)toggleVideoFull()"><video id="tmv" playsinline muted preload="auto"></video><div id="vhud"></div><div id="vcfg"></div></div></div>
 <input type="file" id="gpxFile" accept=".gpx" style="display:none">
 <input type="file" id="vidFile" accept="video/mp4,.mp4,.MP4,.mov,.MOV" multiple style="display:none">
-<script src="firebase-config.js?v=2026.10.19-2"></script>
-<script src="gopro.js?v=2026.10.19-2"></script>
+<script src="firebase-config.js?v=2026.10.19-3"></script>
+<script src="gopro.js?v=2026.10.19-3"></script>
 <script>
 const FTMS=0x1826, DATA=0x2acd, CONTROL=0x2ad9, SPD_RANGE=0x2ad4, INC_RANGE=0x2ad5;
 const HR_SVC=0x180d, HR_MEAS=0x2a37, SENT=0x7fff, GPX_SEG=50;
 const DIM='#23261e', PAST='#4c5142', ACC='#CBF24E';
 const STEP=0.1;
 // version de l'app : à changer à chaque modification (aussi dans cloud.js et dans les ?v= des scripts) ; affichée dans Réglages
-const APP_VERSION='2026.10.19-2';
+const APP_VERSION='2026.10.19-3';
 
 let st={ view:'drive', connected:false, hrOn:false, speed:0, incReal:0, mainUnit:'kmh', dist:0, dplus:0, elapsed:0, hr:0,
   spdT:9.5, incT:4, grades:[], speeds:[], sessions:[], history:[], strava:null, pubId:null, shapePick:null, draft:null, buildErr:'', msg:'', msgColor:'#8A8F80',
@@ -575,7 +575,6 @@ const HUD_TILES={
   time:['TEMPS',s=>fmt(s.elapsed),''],
   eta:['ARRIVÉE DANS',s=>{ const r=Math.max(0,s.play.session.totalDist-rpos()); return s.speed>0?fmt(r/(s.speed/3.6)):'—'; },''],
   hr:['FC',s=>s.hr>0?String(s.hr):'—','bpm'],
-  zone:['ZONE FC',s=>{ const z=hrZone(s.hr); return z?'Z'+z.n:'—'; },''],
   dplus:['D+',s=>String(Math.round(s.dplus)),'m'],
   ele:['ALTITUDE',s=>{ const t=s.play.session.track; return t&&t.length>1?String(Math.round(posAt(t,rpos()).ele)):'—'; },'m'] };
 const HUD_DEFAULT=['speed','grade','dist','rest','time','hr'];
@@ -647,9 +646,9 @@ function hudSection(sess){ const rp=rpos(), r=routeInfo(sess), i=r.secs.findInde
     '<div style="font:500 11.5px Barlow;color:#8A8F80;margin-top:6px">'+(nx?'Ensuite : '+secLabel(nx).toLowerCase():'Dernière section')+'</div></div>'; }
 function videoHud(){ const s=st, sess=s.play.session, stop='event.stopPropagation();';
   const z=hrZone(s.hr);
-  const tiles=hudTiles().map(k=>{ const t=HUD_TILES[k], zc=(k==='hr'||k==='zone')&&z;
+  const tiles=hudTiles().map(k=>{ const t=HUD_TILES[k], zc=k==='hr'&&z;   // une seule info FC : sa couleur et sa zone suivent la fréquence
     return '<div style="background:'+(zc?z.col+'38':'rgba(10,11,10,.62)')+';border-radius:12px;padding:7px 12px;min-width:84px'+(zc?';box-shadow:inset 0 -4px 0 '+z.col:'')+'">'+
-    '<div style="font:600 10px Barlow;letter-spacing:.12em;color:#C3C8B8">'+t[0]+(k==='hr'&&z?' · Z'+z.n:'')+'</div><div style="font:600 30px \'Barlow Condensed\';line-height:1;font-variant-numeric:tabular-nums">'+t[1](s)+
+    '<div style="font:600 10px Barlow;letter-spacing:.12em;color:#C3C8B8">'+t[0]+(k==='hr'&&z?' · Z'+z.n:'')+'</div><div style="font:600 30px \'Barlow Condensed\';line-height:1;font-variant-numeric:tabular-nums'+(zc?';color:'+z.col:'')+'">'+t[1](s)+
     (t[2]?'<span style="font:600 12px Barlow;color:#8A8F80;margin-left:3px">'+t[2]+'</span>':'')+'</div></div>'; }).join('');
   const pill=(on,l)=>'<button onclick="'+stop+on+'" style="background:rgba(10,11,10,.62);border-radius:99px;padding:8px 13px;font:600 12.5px Barlow;color:#F2F4EE;white-space:nowrap">'+l+'</button>';
   const sp=(d,l,acc)=>'<button class="stepbtn" onclick="'+stop+'adjSpd('+d+')" style="width:58px;height:58px;border-radius:16px;background:'+(acc?ACC:'rgba(10,11,10,.7)')+';font:400 30px Barlow;color:'+(acc?'#14170a':ACC)+'">'+l+'</button>';
@@ -1105,6 +1104,6 @@ window.addEventListener('resize', placeVideo);
 render();
 loadKnown();
 </script>
-<script type="module" src="cloud.js?v=2026.10.19-2"></script>
+<script type="module" src="cloud.js?v=2026.10.19-3"></script>
 </body>
 </html>

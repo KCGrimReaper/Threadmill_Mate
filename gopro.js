@@ -223,6 +223,6 @@
     return { fi, t, vs };
   }
 
-  const api = { VERSION: '2026.10.19-2', parseGpmf, readMp4Gps, buildVideoMap, linearVideoMap, anchorVideoMap, videoAt };
+  const api = { VERSION: '2026.10.19-3', parseGpmf, readMp4Gps, buildVideoMap, linearVideoMap, anchorVideoMap, videoAt };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.TMGoPro = api;
 })(typeof window !== 'undefined' ? window : globalThis);
