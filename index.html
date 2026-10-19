@@ -23,7 +23,7 @@
 </style>
 </head>
 <body>
-<div id="app"><div id="ui"></div><div id="vbox" onclick="if(!st.vfull)toggleVideoFull()"><video id="tmv" playsinline muted preload="auto"></video><div id="vhud"></div></div></div>
+<div id="app"><div id="ui"></div><div id="vbox" onclick="if(!st.vfull)toggleVideoFull()"><video id="tmv" playsinline muted preload="auto"></video><div id="vhud"></div><div id="vcfg"></div></div></div>
 <input type="file" id="gpxFile" accept=".gpx" style="display:none">
 <input type="file" id="vidFile" accept="video/mp4,.mp4,.MP4,.mov,.MOV" multiple style="display:none">
 <script src="firebase-config.js"></script>
@@ -186,7 +186,8 @@ function launch(id){ const s=st.sessions.find(x=>x.id===id); if(!s) return;
   st.play=play; st.view='play'; st.dist=0; st.dplus=0; st.elapsed=0; st.grades=[]; st.speeds=[];
   st.spdT = s.type==='gpx' ? (first.spd||st.spdT) : first.spd;
   st.incT = s.type==='gpx' ? first.grade : first.inc;
-  sendControl([0x07]); st.vfull=false; if(s.video) restoreVideo(s); render(); }
+  sendControl([0x07]); st.vfull=false; st.hudRun=null; if(s.video) restoreVideo(s); render();
+  if(s.type==='gpx' && s.video && vfullStart()) toggleVideoFull(); }   // clic sur « Lancer » : le plein écran du navigateur est autorisé
 function doStop(){ if(st.play) sendSpeed(spdMin); if(!archiveRun()) st.justDone=null; st.play=null; st.vfull=false; st.view='history'; render(); }
 // position sur le parcours : distance courue + décalage de la séance (départ au km X, passages sautés) ;
 // la distance courue (st.dist) reste la vraie, c'est elle qui part dans l'historique et sur Strava
@@ -351,7 +352,7 @@ function cloudDel(kind,id){ if(window.TMCloud) TMCloud.del(kind,id); }
 // réglages synchronisés champ par champ (unit, strava), chacun avec son horodatage tm_<champ>_u (0 = jamais modifié depuis la synchro)
 function settingU(f){ return parseInt(localStorage.getItem('tm_'+f+'_u')||'0',10)||0; }
 function settingsChanged(f){ try{ localStorage.setItem('tm_'+f+'_u', String(Date.now())); }catch(e){} if(window.TMCloud) TMCloud.putSettings(); }
-function softRender(){ if(st.view==='build'||renaming||st.hrz) return; render(); }   // ne pas casser une saisie en cours
+function softRender(){ if(st.view==='build'||renaming||st.hrz||st.settings) return; render(); }   // ne pas casser une saisie en cours
 function cloudLogin(){ if(window.TMCloud){ st.cloudInfo=''; TMCloud.login(); } }
 function cloudLogout(){ if(window.TMCloud) TMCloud.logout(); }
 window.tmApp={
@@ -520,13 +521,13 @@ function toggleVideoFull(){ if(st.vfull){ exitVideoFull(); return; } st.vfull=tr
   // plein écran du navigateur (barres masquées) et, sur téléphone, écran tourné à l'horizontale ; sans effet si refusé
   const el=document.documentElement;
   if(el.requestFullscreen && !document.fullscreenElement) el.requestFullscreen({navigationUI:'hide'}).then(()=>{ try{ screen.orientation.lock('landscape').catch(()=>{}); }catch(e){} }).catch(()=>{}); }
-function exitVideoFull(){ st.vfull=false; hudCfg=false; if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(()=>{}); try{ screen.orientation.unlock(); }catch(e){} render(); }
-document.addEventListener('fullscreenchange',()=>{ if(!document.fullscreenElement && st.vfull){ st.vfull=false; hudCfg=false; render(); } });
+function exitVideoFull(){ st.vfull=false; hudCfg=false; document.getElementById('vcfg').innerHTML=''; if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(()=>{}); try{ screen.orientation.unlock(); }catch(e){} render(); }
+document.addEventListener('fullscreenchange',()=>{ if(!document.fullscreenElement && st.vfull){ st.vfull=false; hudCfg=false; document.getElementById('vcfg').innerHTML=''; render(); } });
 // pose la vidéo (élément permanent, hors du rendu) sur son emplacement, ou en plein écran avec les chiffres par-dessus
 function placeVideo(){ const box=document.getElementById('vbox'), slot=document.getElementById('vslot'), app=document.getElementById('app'), hud=document.getElementById('vhud');
   const on=!!(st.play && st.view==='play' && slot);
   box.classList.toggle('full', on && st.vfull);
-  if(!on){ box.style.display='none'; hud.innerHTML=''; return; }
+  if(!on){ box.style.display='none'; hud.innerHTML=''; if(hudCfg){ hudCfg=false; document.getElementById('vcfg').innerHTML=''; } return; }
   box.style.display='block';
   if(st.vfull){ box.style.top=box.style.left=box.style.width=box.style.height=''; hud.innerHTML=videoHud(); return; }
   const a=app.getBoundingClientRect(), r=slot.getBoundingClientRect();
@@ -577,10 +578,37 @@ const HUD_TILES={
   ele:['ALTITUDE',s=>{ const t=s.play.session.track; return t&&t.length>1?String(Math.round(posAt(t,rpos()).ele)):'—'; },'m'] };
 const HUD_DEFAULT=['speed','grade','dist','rest','time','hr'];
 let hudCfg=false;
-function hudTiles(){ try{ const v=JSON.parse(localStorage.getItem('tm_hud')||'null'); if(Array.isArray(v)){ const k=v.filter(x=>HUD_TILES[x]); if(k.length) return k; } }catch(e){} return HUD_DEFAULT; }
-function hudSave(v){ try{ localStorage.setItem('tm_hud',JSON.stringify(v)); }catch(e){} settingsChanged('hud'); render(); }
-function hudToggle(k){ const v=hudTiles().slice(), i=v.indexOf(k); if(i>=0){ if(v.length>1) v.splice(i,1); } else v.push(k); hudSave(v); }
-function hudMove(k,d){ const v=hudTiles().slice(), i=v.indexOf(k), j=i+d; if(i<0||j<0||j>=v.length) return; v.splice(i,1); v.splice(j,0,k); hudSave(v); }
+// Vue par défaut du plein écran = réglage synchronisé « hud » (tm_hud), modifiable dans Réglages ou depuis le plein écran.
+// Pendant une séance, « Infos » modifie la vue de cette séance seulement (st.hudRun), avec « Enregistrer comme vue par défaut ».
+function hudDefault(){ try{ const v=JSON.parse(localStorage.getItem('tm_hud')||'null'); if(Array.isArray(v)){ const k=v.filter(x=>HUD_TILES[x]); if(k.length) return k; } }catch(e){} return HUD_DEFAULT; }
+function hudTiles(){ return (hudCfg && st.hudRun) || (st.play && st.hudRun) || hudDefault(); }
+function hudEditing(){ return hudCfg ? (st.hudRun||hudDefault()) : hudDefault(); }   // liste en cours de modification
+function hudSetDefault(v){ try{ localStorage.setItem('tm_hud',JSON.stringify(v)); }catch(e){} settingsChanged('hud'); }
+function hudSave(v){ if(hudCfg) st.hudRun=v; else hudSetDefault(v); hudRefresh(); }
+function hudToggle(k){ const v=hudEditing().slice(), i=v.indexOf(k); if(i>=0){ if(v.length>1) v.splice(i,1); } else v.push(k); hudSave(v); }
+function hudMove(k,d){ const v=hudEditing().slice(), i=v.indexOf(k), j=i+d; if(i<0||j<0||j>=v.length) return; v.splice(i,1); v.splice(j,0,k); hudSave(v); }
+function hudKeep(){ hudSetDefault(st.hudRun||hudDefault()); st.hudRun=null; hudRefresh(); }
+function hudReset(){ st.hudRun=null; hudRefresh(); }
+function hudOpen(){ hudCfg=true; hudRefresh(); }
+function hudClose(){ hudCfg=false; hudRefresh(); }
+// réécrit la liste (fenêtre « Infos » ou Réglages) en gardant la position de défilement
+function hudRefresh(){ if(hudCfg || st.vfull){ const el=document.getElementById('vcfg'), sc=el.querySelector('[data-scroll]'), top=sc?sc.scrollTop:0;
+    el.innerHTML=hudCfg?hudPanel():''; const sc2=el.querySelector('[data-scroll]'); if(sc2) sc2.scrollTop=top; placeVideo(); }
+  if(st.settings) render(); }
+// liste des infos : ↑ ↓ ✕ et « + » pour ajouter
+function hudEditor(sel){ const rest=Object.keys(HUD_TILES).filter(k=>sel.indexOf(k)<0);
+  const ib=(on,l,dis)=>'<button '+(dis?'disabled ':'')+'onclick="event.stopPropagation();'+on+'" style="width:40px;height:38px;border-radius:10px;background:#23261e;font:600 16px Barlow;color:'+(dis?'#3a3f33':'#C3C8B8')+'">'+l+'</button>';
+  return sel.map((k,n)=>'<div style="display:flex;align-items:center;gap:6px;background:#191b18;border:1px solid #26291f;border-radius:12px;padding:6px 6px 6px 12px;margin-bottom:6px">'+
+      '<span style="font:600 12px Barlow;color:#6d7264;width:16px">'+(n+1)+'</span><span style="flex:1;font:600 13.5px Barlow;color:'+ACC+'">'+HUD_TILES[k][0]+'</span>'+
+      ib('hudMove(\''+k+'\',-1)','↑',n===0)+ib('hudMove(\''+k+'\',1)','↓',n===sel.length-1)+ib('hudToggle(\''+k+'\')','✕',sel.length<2)+'</div>').join('')+
+    (rest.length?'<div style="font:500 12.5px Barlow;color:#8A8F80;margin:10px 0 6px">Ajouter :</div><div style="display:flex;flex-wrap:wrap;gap:6px">'+
+      rest.map(k=>'<button onclick="event.stopPropagation();hudToggle(\''+k+'\')" style="background:#191b18;border:1px dashed #3a3f33;border-radius:99px;padding:9px 13px;font:600 12.5px Barlow;color:#C3C8B8">+ '+HUD_TILES[k][0]+'</button>').join('')+'</div>':''); }
+function hudPanel(){ const changed=!!st.hudRun && JSON.stringify(st.hudRun)!==JSON.stringify(hudDefault());
+  const b=(on,l,acc)=>'<button onclick="event.stopPropagation();'+on+'" style="width:100%;margin-top:8px;background:'+(acc?ACC:'#23261e')+';border-radius:14px;padding:13px;font:600 14px Barlow;color:'+(acc?'#14170a':'#C3C8B8')+'">'+l+'</button>';
+  return '<div onclick="event.stopPropagation()" style="position:absolute;inset:0;background:rgba(7,8,7,.92);display:flex;justify-content:center;padding:16px;z-index:3">'+
+    '<div data-scroll style="width:100%;max-width:460px;max-height:100%;overflow:auto;color:#F2F4EE"><div style="font:600 19px Barlow;margin-bottom:4px">Infos à l\'écran</div>'+
+    '<div style="font:500 12.5px Barlow;color:#8A8F80;margin-bottom:10px">Dans l\'ordre de l\'écran. Les changements valent pour cette séance ; la vue par défaut se règle aussi dans Réglages.</div>'+
+    hudEditor(hudEditing())+b('hudClose()','Terminé',true)+(changed?b('hudKeep();hudClose()','Enregistrer comme vue par défaut')+b('hudReset()','Revenir à la vue par défaut'):'')+'</div></div>'; }
 // profil du tracé (altitude tous les 50 m) et sections montée / plat / descente (pente lissée sur 200 m, sections d'au moins 300 m)
 const routeCache=new WeakMap();
 function routeInfo(sess){ let r=routeCache.get(sess); if(r) return r;
@@ -625,23 +653,11 @@ function videoHud(){ const s=st, sess=s.play.session, stop='event.stopPropagatio
   const sp=(d,l,acc)=>'<button class="stepbtn" onclick="'+stop+'adjSpd('+d+')" style="width:58px;height:58px;border-radius:16px;background:'+(acc?ACC:'rgba(10,11,10,.7)')+';font:400 30px Barlow;color:'+(acc?'#14170a':ACC)+'">'+l+'</button>';
   let h=vidOutside()+'<div style="position:absolute;inset:0;padding:calc(10px + env(safe-area-inset-top)) 12px calc(10px + env(safe-area-inset-bottom));display:flex;flex-direction:column;justify-content:space-between;color:#F2F4EE;pointer-events:none">'+
     '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;pointer-events:auto"><div style="display:flex;flex-wrap:wrap;gap:6px">'+tiles+'</div>'+
-    '<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">'+pill('exitVideoFull()','Quitter')+pill('hudCfg=true;render()','Infos')+(s.play.started?pill('routeSkip('+SKIP_M+')','+500 m'):'')+'</div></div>'+
+    '<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">'+pill('exitVideoFull()','Quitter')+pill('hudOpen()','Infos')+(s.play.started?pill('routeSkip('+SKIP_M+')','+500 m'):'')+'</div></div>'+
     '<div style="pointer-events:auto"><div style="display:flex;justify-content:space-between;align-items:flex-end;gap:8px;margin-bottom:8px">'+hudSection(sess)+
     '<div style="display:flex;align-items:center;gap:8px">'+sp(-STEP,'−')+'<div style="text-align:center;min-width:54px"><div style="font:600 28px \'Barlow Condensed\';line-height:1;color:'+ACC+'">'+s.spdT.toFixed(1)+'</div><div style="font:600 9.5px Barlow;letter-spacing:.1em;color:#C3C8B8">CIBLE</div></div>'+sp(STEP,'+',1)+'</div></div>'+
     '<div style="background:rgba(10,11,10,.55);border-radius:12px;padding:6px 8px 4px">'+hudProfile(sess)+
     '<div style="display:flex;justify-content:space-between;font:600 11px Barlow;color:#C3C8B8;margin-top:2px"><span>0 km</span><span>km '+(rpos()/1000).toFixed(2)+' / '+(sess.totalDist/1000).toFixed(2)+' km</span></div></div></div></div>';
-  if(hudCfg){ const sel=hudTiles(), rest=Object.keys(HUD_TILES).filter(k=>sel.indexOf(k)<0);
-    const ib=(on,l,dis)=>'<button '+(dis?'disabled ':'')+'onclick="'+on+'" style="width:38px;height:36px;border-radius:10px;background:#23261e;font:600 16px Barlow;color:'+(dis?'#3a3f33':'#C3C8B8')+'">'+l+'</button>';
-    h+='<div onclick="event.stopPropagation()" style="position:absolute;inset:0;background:rgba(7,8,7,.9);display:flex;align-items:center;justify-content:center;padding:16px;z-index:2;overflow:auto">'+
-      '<div style="width:100%;max-width:460px;max-height:100%;overflow:auto"><div style="font:600 19px Barlow;margin-bottom:4px">Tableau de bord</div>'+
-      '<div style="font:500 12.5px Barlow;color:#8A8F80;margin-bottom:10px">Infos affichées, dans l\'ordre de l\'écran : ↑ ↓ pour les déplacer, ✕ pour les retirer.</div>'+
-      sel.map((k,n)=>'<div style="display:flex;align-items:center;gap:6px;background:#191b18;border:1px solid #26291f;border-radius:12px;padding:6px 6px 6px 12px;margin-bottom:6px">'+
-        '<span style="font:600 12px Barlow;color:#6d7264;width:16px">'+(n+1)+'</span><span style="flex:1;font:600 13.5px Barlow;color:'+ACC+'">'+HUD_TILES[k][0]+'</span>'+
-        ib('hudMove(\''+k+'\',-1)','↑',n===0)+ib('hudMove(\''+k+'\',1)','↓',n===sel.length-1)+ib('hudToggle(\''+k+'\')','✕',sel.length<2)+'</div>').join('')+
-      (rest.length?'<div style="font:500 12.5px Barlow;color:#8A8F80;margin:10px 0 6px">Ajouter :</div><div style="display:flex;flex-wrap:wrap;gap:6px">'+
-        rest.map(k=>'<button onclick="hudToggle(\''+k+'\')" style="background:#191b18;border:1px dashed #3a3f33;border-radius:99px;padding:8px 12px;font:600 12.5px Barlow;color:#C3C8B8">+ '+HUD_TILES[k][0]+'</button>').join('')+'</div>':'')+
-      '<button onclick="hudCfg=false;render()" style="width:100%;margin-top:14px;background:'+ACC+';border-radius:14px;padding:14px;font:600 14px Barlow;color:#14170a">Terminé</button></div></div>';
-  }
   return h; }
 // toutes les 250 ms : instant de la vidéo pour la distance courue (interpolée entre deux mesures), vitesse de lecture
 // = ta vitesse ÷ vitesse filmée à cet endroit, corrigée de l'écart ; au-delà de 3 s d'écart, saut direct.
@@ -733,7 +749,7 @@ function tick(){
     st.grades.push(curGrade);
     st.speeds.push(st.speed); }
   playAdvance();
-  if((st.view==='drive'||st.view==='play') && !st.hrz) render();
+  if((st.view==='drive'||st.view==='play') && !st.hrz && !st.settings) render();
 }
 function playAdvance(){ const play=st.play; if(!play||play.paused) return;
   let justStarted=false;
@@ -754,6 +770,28 @@ function applyTargets(spd,inc,force){
 // ---------- navigation ----------
 function go(v){ st.view=v; st.justDone=null; if(v==='sessions') st.msg=''; render(); }
 function openSheet(){ st.sheet=true; render(); }
+function openSettings(){ st.settings=true; st.sheet=false; render(); }
+function closeSettings(){ st.settings=false; render(); }
+function vfullStart(){ try{ return localStorage.getItem('tm_vfull_start')==='1'; }catch(e){ return false; } }
+function vfullStartToggle(){ try{ localStorage.setItem('tm_vfull_start', vfullStart()?'0':'1'); }catch(e){} render(); }
+function viewSettings(){ const sec=t=>'<div style="font:700 11px Barlow;letter-spacing:.12em;color:#6d7264;margin:4px 2px 8px">'+t+'</div>';
+  const row=(title,sub,btn)=>'<div style="display:flex;align-items:center;gap:12px;background:#191b18;border:1px solid #26291f;border-radius:16px;padding:13px 14px;margin-bottom:10px">'+
+    '<div style="flex:1;min-width:0"><div style="font:600 14.5px Barlow">'+title+'</div><div style="font:500 12px Barlow;color:#8A8F80;line-height:1.4">'+sub+'</div></div>'+btn+'</div>';
+  const on=vfullStart();
+  return '<div style="position:absolute;inset:0;background:rgba(7,8,7,.72);display:flex;align-items:flex-end;z-index:20" onclick="if(event.target===this)closeSettings()">'+
+    '<div id="settingsScroll" style="width:100%;max-height:94vh;overflow:auto;background:#161816;border-top:1px solid #26291f;border-radius:26px 26px 0 0;padding:18px 18px 24px">'+
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div style="font:600 19px Barlow">Réglages</div><button onclick="closeSettings()" style="background:transparent;font:500 22px Barlow;color:#8A8F80;line-height:1">×</button></div>'+
+    sec('PROFIL')+    '<div style="display:flex;align-items:center;gap:12px;background:#191b18;border:1px solid #26291f;border-radius:16px;padding:13px 14px;margin-bottom:10px">'+
+    '<span style="display:flex;width:30px;height:9px;border-radius:3px;overflow:hidden">'+HRZ_COL.map(c=>'<span style="flex:1;background:'+(hrzCfg()?c:'#4c5142')+'"></span>').join('')+'</span>'+
+    '<div style="flex:1;min-width:0"><div style="font:600 14.5px Barlow">Zones cardio</div><div style="font:500 12px Barlow;color:#8A8F80">'+(hrzCfg()?'FC max '+hrzCfg().max+' bpm · couleur de la zone sur la FC':'Couleur de ta zone sur la FC pendant la course')+'</div></div>'+
+    '<button onclick="hrzOpen()" style="background:#23261e;border-radius:11px;padding:10px 14px;font:600 13px Barlow;color:#C3C8B8">'+(hrzCfg()?'Modifier':'Régler')+'</button></div>'+
+
+    sec('PLEIN ÉCRAN VIDÉO')+
+    row('Démarrer en plein écran','Les séances avec vidéo s\'ouvrent directement en plein écran (sur cet appareil)',
+      '<button onclick="vfullStartToggle()" style="background:'+(on?ACC:'#23261e')+';border-radius:11px;padding:10px 14px;font:600 13px Barlow;color:'+(on?'#14170a':'#C3C8B8')+'">'+(on?'Oui':'Non')+'</button>')+
+    '<div style="background:#191b18;border:1px solid #26291f;border-radius:16px;padding:13px 14px;margin-bottom:14px">'+
+    '<div style="font:600 14.5px Barlow">Vue par défaut</div><div style="font:500 12px Barlow;color:#8A8F80;margin-bottom:10px">Infos affichées en plein écran, dans l\'ordre de l\'écran</div>'+hudEditor(hudDefault())+'</div>'+
+    sec('COMPTE')+cloudRow()+'</div></div>'; }
 function closeSheet(){ st.sheet=false; render(); }
 function playPause(){ if(st.play){ st.play.paused=!st.play.paused; render(); } }
 
@@ -766,9 +804,11 @@ function render(){
   // header
   html+='<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:16px 18px 10px">'+
     '<div style="font:700 13px Barlow;letter-spacing:.14em;color:#8A8F80">THREADMILL</div>'+
+    '<div style="display:flex;align-items:center;gap:8px"><button onclick="openSettings()" title="Réglages" style="display:flex;align-items:center;gap:6px;background:#191b18;border:1px solid #26291f;border-radius:99px;padding:6px 11px;font:600 12.5px Barlow;color:#C3C8B8">'+
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#C3C8B8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Réglages</button>'+
     '<button onclick="openSheet()" style="display:flex;align-items:center;gap:8px;background:#191b18;border:1px solid #26291f;border-radius:99px;padding:6px 12px">'+
     '<span style="width:7px;height:7px;border-radius:99px;background:'+dotColor+'"></span>'+
-    '<span style="font:600 12.5px Barlow;color:#C3C8B8">'+linkLabel+'</span></button></div>';
+    '<span style="font:600 12.5px Barlow;color:#C3C8B8">'+linkLabel+'</span></button></div></div>';
 
   if(s.view==='drive'||s.view==='play') html+=simBar();
   if(s.view==='drive') html+=viewDrive();
@@ -785,11 +825,14 @@ function render(){
       '<button onclick="go(\'history\')" style="background:transparent;padding:6px 0;font:600 12.5px Barlow;letter-spacing:.04em;color:'+t(s.view==='history')+'">Historique</button></div>';
   }
   if(s.sheet) html+=viewSheet();
+  if(s.settings) html+=viewSettings();
   if(renaming) html+=viewRename();
   if(st.shapePick) html+=viewShape();
   if(st.vidSheet) html+=viewVideoSheet();
   if(st.hrz) html+=viewHrz();
+  const sc=document.getElementById('settingsScroll'), top=sc?sc.scrollTop:0;
   document.getElementById('ui').innerHTML=html;
+  const sc2=document.getElementById('settingsScroll'); if(sc2) sc2.scrollTop=top;
   placeVideo(); syncRestore();
 }
 function viewShape(){ const forms=[['boucle','Boucle'],['coeur','Cœur ♥'],['etoile','Étoile ★'],['cercle','Cercle'],['huit','Huit ∞'],['eclair','Éclair']];
@@ -875,7 +918,7 @@ function viewSessions(){ const s=st;
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><button onclick="newSession()" style="background:#CBF24E;border-radius:14px;padding:13px;font:600 14px Barlow;color:#14170a">+ Intervalles</button>'+
     '<button onclick="document.getElementById(\'gpxFile\').click()" style="background:#191b18;border:1px solid #26291f;border-radius:14px;padding:13px;font:600 14px Barlow;color:#C3C8B8">Importer un GPX</button></div>';
   if(s.msg) h+='<div style="font:500 12.5px Barlow;color:'+s.msgColor+';line-height:1.4">'+esc(s.msg)+'</div>';
-  if(s.cloud==='out') h+='<button onclick="openSheet()" style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:#191b18;border:1px solid #26291f;border-radius:14px;padding:11px 13px;font:600 12.5px Barlow;color:#C3C8B8;text-align:left">Connecte-toi pour retrouver tes séances sur tous tes appareils<span style="color:#CBF24E;font-size:17px">→</span></button>';
+  if(s.cloud==='out') h+='<button onclick="openSettings()" style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:#191b18;border:1px solid #26291f;border-radius:14px;padding:11px 13px;font:600 12.5px Barlow;color:#C3C8B8;text-align:left">Connecte-toi pour retrouver tes séances sur tous tes appareils<span style="color:#CBF24E;font-size:17px">→</span></button>';
   if(s.sessions.length) h+=selBar('sess');
   if(!s.sessions.length) h+='<div style="border:1px dashed #2e3227;border-radius:18px;padding:28px 20px;text-align:center;font:500 13.5px Barlow;color:#6d7264;line-height:1.5">Aucune séance.<br>Crée une séance à intervalles ou importe un GPX pour courir un vrai profil.</div>';
   s.sessions.forEach(x=>{ const gpx=x.type==='gpx', t=gpx?null:totals(x.segments);
@@ -1039,11 +1082,6 @@ function viewSheet(){ const s=st, hrLive=s.hrOn&&s.hr>=0;
     '<span style="width:9px;height:9px;border-radius:99px;background:'+(sim?'#E8C547':'#4c5142')+'"></span>'+
     '<div style="flex:1;min-width:0"><div style="font:600 14.5px Barlow">Simulation</div><div style="font:500 12px Barlow;color:#8A8F80">Essayer séances et vidéo sans tapis</div></div>'+
     '<button onclick="simToggle()" style="background:'+(sim?'#23261e':'#E8C547')+';border-radius:11px;padding:10px 14px;font:600 13px Barlow;color:'+(sim?'#FF7A6B':'#14170a')+'">'+(sim?'Arrêter':'Activer')+'</button></div>'+
-    '<div style="display:flex;align-items:center;gap:12px;background:#191b18;border:1px solid #26291f;border-radius:16px;padding:13px 14px;margin-bottom:14px">'+
-    '<span style="display:flex;width:30px;height:9px;border-radius:3px;overflow:hidden">'+HRZ_COL.map(c=>'<span style="flex:1;background:'+(hrzCfg()?c:'#4c5142')+'"></span>').join('')+'</span>'+
-    '<div style="flex:1;min-width:0"><div style="font:600 14.5px Barlow">Zones cardio</div><div style="font:500 12px Barlow;color:#8A8F80">'+(hrzCfg()?'FC max '+hrzCfg().max+' bpm · couleur de la zone sur la FC':'Couleur de ta zone sur la FC pendant la course')+'</div></div>'+
-    '<button onclick="hrzOpen()" style="background:#23261e;border-radius:11px;padding:10px 14px;font:600 13px Barlow;color:#C3C8B8">'+(hrzCfg()?'Modifier':'Régler')+'</button></div>'+
-    cloudRow()+
     '<div style="font:500 12px Barlow;color:#6d7264;line-height:1.5">Le démarrage de la courroie reste sur le bouton physique du tapis. L\'app pilote l\'allure et la pente, et enregistre la course.</div></div></div>'; }
 
 document.addEventListener('visibilitychange', async ()=>{ if(document.visibilityState==='visible' && st.connected){ try{ if('wakeLock' in navigator) wakeLock=await navigator.wakeLock.request('screen'); }catch(e){} } });
