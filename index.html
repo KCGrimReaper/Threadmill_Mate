@@ -33,7 +33,8 @@
     .dk-wide{width:100%;max-width:1180px;margin:0 auto}
     .list-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));align-items:start}
     /* séance avec vidéo : vidéo en grand à gauche, chiffres et commandes à droite */
-    .pl-grid{display:grid;grid-template-columns:minmax(0,1.75fr) minmax(360px,1fr);gap:0 20px;align-items:start;padding:0 18px;width:100%;max-width:1600px;margin:0 auto}
+    .dk-play{width:100%;max-width:1600px;margin:0 auto}
+    .pl-grid{display:grid;grid-template-columns:minmax(0,1.75fr) minmax(360px,1fr);gap:0 20px;align-items:start;padding:0 18px;width:100%}
     .pl-left,.pl-right{display:flex;flex-direction:column}
     .pl-one{display:flex;flex-direction:column}
     .pl-one>.pl-left,.pl-one>.pl-right{display:contents}
@@ -48,15 +49,15 @@
 <div id="app"><div id="ui"></div><div id="vbox" onclick="if(!st.vfull)toggleVideoFull()"><video id="tmv" playsinline muted preload="auto"></video><div id="vhud"></div><div id="vcfg"></div></div></div>
 <input type="file" id="gpxFile" accept=".gpx" style="display:none">
 <input type="file" id="vidFile" accept="video/mp4,.mp4,.MP4,.mov,.MOV" multiple style="display:none">
-<script src="firebase-config.js?v=2026.10.19-5"></script>
-<script src="gopro.js?v=2026.10.19-5"></script>
+<script src="firebase-config.js?v=2026.10.19-6"></script>
+<script src="gopro.js?v=2026.10.19-6"></script>
 <script>
 const FTMS=0x1826, DATA=0x2acd, CONTROL=0x2ad9, SPD_RANGE=0x2ad4, INC_RANGE=0x2ad5;
 const HR_SVC=0x180d, HR_MEAS=0x2a37, SENT=0x7fff, GPX_SEG=50;
 const DIM='#23261e', PAST='#4c5142', ACC='#CBF24E';
 const STEP=0.1;
 // version de l'app : à changer à chaque modification (aussi dans cloud.js et dans les ?v= des scripts) ; affichée dans Réglages
-const APP_VERSION='2026.10.19-5';
+const APP_VERSION='2026.10.19-6';
 
 let st={ view:'drive', connected:false, hrOn:false, speed:0, incReal:0, mainUnit:'kmh', dist:0, dplus:0, elapsed:0, hr:0,
   spdT:9.5, incT:4, grades:[], speeds:[], sessions:[], history:[], strava:null, pubId:null, shapePick:null, draft:null, buildErr:'', msg:'', msgColor:'#8A8F80',
@@ -128,12 +129,14 @@ function simToggle(){ sim=!sim; simBelt=false; simFast=false; st.speed=0; st.inc
   render(); }
 function simBeltToggle(){ simBelt=!simBelt; st.speed=simBelt?clamp(st.spdT,spdMin,spdMax):0; render(); }
 function simBar(){ if(!sim) return '';
-  return '<div style="margin:0 18px 8px;display:flex;align-items:center;gap:10px;background:rgba(232,197,71,.1);border:1px solid #5a4d1c;border-radius:14px;padding:9px 12px">'+
-    '<span style="flex:1;font:600 12.5px Barlow;color:#E8C547;line-height:1.35">Simulation sans tapis<br><span style="font-weight:500;color:#a99a5c">'+(simRecord?'enregistrée « [Test] » dans l\'historique':'rien n\'est enregistré')+'</span></span>'+
+  const opt=(on,flag,title,sub)=>'<button onclick="'+on+'" style="display:flex;align-items:center;gap:10px;width:100%;background:transparent;text-align:left;padding:8px 0 0">'+
+    '<span style="flex:1;min-width:0"><span style="display:block;font:600 12.5px Barlow;color:'+(flag?'#E8C547':'#C3C8B8')+'">'+title+'</span><span style="display:block;font:500 11.5px Barlow;color:#8a7f52;line-height:1.35">'+sub+'</span></span>'+
+    '<span style="flex:none;width:38px;height:22px;border-radius:99px;background:'+(flag?'#E8C547':'#3a3f33')+';position:relative"><span style="position:absolute;top:3px;left:'+(flag?'19px':'3px')+';width:16px;height:16px;border-radius:99px;background:#14170a"></span></span></button>';
+  return '<div style="margin:0 18px 8px;background:rgba(232,197,71,.1);border:1px solid #5a4d1c;border-radius:14px;padding:9px 12px 10px">'+
+    '<div style="display:flex;align-items:center;gap:10px"><span style="flex:1;font:600 12.5px Barlow;color:#E8C547">Simulation sans tapis</span>'+
     '<button onclick="simBeltToggle()" style="background:'+(simBelt?'#23261e':'#E8C547')+';border-radius:10px;padding:9px 12px;font:600 13px Barlow;color:'+(simBelt?'#FF7A6B':'#14170a')+'">'+(simBelt?'Arrêter la courroie':'Lancer la courroie')+'</button></div>'+
-    '<div style="margin:0 18px 8px;display:flex;gap:8px">'+
-    '<button onclick="simFast=!simFast;render()" style="flex:1;background:'+(simFast?'rgba(232,197,71,.18)':'#191b18')+';border:1px solid '+(simFast?'#E8C547':'#26291f')+';border-radius:12px;padding:9px;font:600 12.5px Barlow;color:'+(simFast?'#E8C547':'#C3C8B8')+'">Accéléré ×10</button>'+
-    '<button onclick="simRecord=!simRecord;render()" style="flex:1.4;background:'+(simRecord?'rgba(232,197,71,.18)':'#191b18')+';border:1px solid '+(simRecord?'#E8C547':'#26291f')+';border-radius:12px;padding:9px;font:600 12.5px Barlow;color:'+(simRecord?'#E8C547':'#C3C8B8')+'">Enregistrer (tester Strava)</button></div>'; }
+    opt('simFast=!simFast;render()',simFast,'Temps accéléré ×10','la séance défile 10 fois plus vite, pour aller au bout en quelques minutes')+
+    opt('simRecord=!simRecord;render()',simRecord,'Garder dans l\'historique','la séance finie y apparaît (« [Test] … ») pour essayer la publication Strava ; sinon rien n\'est gardé')+'</div>'; }
 function disconnect(){ if(sim){ simToggle(); return; } if(device&&device.gatt.connected) device.gatt.disconnect(); st.connected=false; render(); }
 async function readRanges(svc){
   try{ const d=await (await svc.getCharacteristic(SPD_RANGE)).readValue(); spdMin=d.getUint16(0,true)*0.01; spdMax=d.getUint16(2,true)*0.01; }catch(e){}
@@ -838,7 +841,7 @@ function render(){
     '<span style="width:7px;height:7px;border-radius:99px;background:'+dotColor+'"></span>'+
     '<span style="font:600 12.5px Barlow;color:#C3C8B8">'+linkLabel+'</span></button></div></div>';
 
-  if(s.view==='drive'||s.view==='play') html+=simBar();
+  if(s.view==='drive'||s.view==='play') html+='<div class="'+(s.view==='play'?'dk-play':'dk-col')+'">'+simBar()+'</div>';
   if(s.view==='drive') html+=viewDrive();
   else if(s.view==='sessions') html+=viewSessions();
   else if(s.view==='build') html+=viewBuild();
@@ -1044,7 +1047,7 @@ function viewPlay(){ const s=st, play=s.play; if(!play) return '';
     bars=gpxBars(sess,rp).map(b=>({flex:1,h:b.h,color:b.color})); prog=Math.min(100,rp/sess.totalDist*100)+'%';
     tot='km '+(Math.min(rp,sess.totalDist)/1000).toFixed(2)+' / '+(sess.totalDist/1000).toFixed(2)+(play.offset?' · couru '+(s.dist/1000).toFixed(2):'');
     next=nx?'à venir : pente '+nx.grade.toFixed(1)+' %':'fin du parcours'; pSpd=(play.mode==='gpx'&&seg.spd!=null)?seg.spd.toFixed(1):s.spdT.toFixed(1); pInc=String(Math.round(seg.grade)); }
-  let h='<div style="flex:1;display:flex;flex-direction:column">'+
+  let h='<div class="dk-play" style="flex:1;display:flex;flex-direction:column">'+
     '<div style="padding:2px 18px 0;display:flex;align-items:baseline;justify-content:space-between"><div style="font:600 16px Barlow">'+esc(sess.name)+'</div>'+modeHtml+'</div>'+
     '<div class="'+(play.type==='gpx'&&sess.video?'pl-grid':'dk-col pl-one')+'"><div class="pl-left">';
   if(play.type==='gpx' && sess.video){ h+=videoSlot(sess);
@@ -1130,6 +1133,6 @@ window.addEventListener('resize', placeVideo);
 render();
 loadKnown();
 </script>
-<script type="module" src="cloud.js?v=2026.10.19-5"></script>
+<script type="module" src="cloud.js?v=2026.10.19-6"></script>
 </body>
 </html>
