@@ -49,15 +49,15 @@
 <div id="app"><div id="ui"></div><div id="vbox" onclick="if(!st.vfull)toggleVideoFull()"><video id="tmv" playsinline muted preload="auto"></video><div id="vhud"></div><div id="vcfg"></div></div></div>
 <input type="file" id="gpxFile" accept=".gpx" style="display:none">
 <input type="file" id="vidFile" accept="video/mp4,.mp4,.MP4,.mov,.MOV" multiple style="display:none">
-<script src="firebase-config.js?v=2026.10.19-6"></script>
-<script src="gopro.js?v=2026.10.19-6"></script>
+<script src="firebase-config.js?v=2026.10.21-1"></script>
+<script src="gopro.js?v=2026.10.21-1"></script>
 <script>
 const FTMS=0x1826, DATA=0x2acd, CONTROL=0x2ad9, SPD_RANGE=0x2ad4, INC_RANGE=0x2ad5;
 const HR_SVC=0x180d, HR_MEAS=0x2a37, SENT=0x7fff, GPX_SEG=50;
 const DIM='#23261e', PAST='#4c5142', ACC='#CBF24E';
 const STEP=0.1;
 // version de l'app : à changer à chaque modification (aussi dans cloud.js et dans les ?v= des scripts) ; affichée dans Réglages
-const APP_VERSION='2026.10.19-6';
+const APP_VERSION='2026.10.21-1';
 
 let st={ view:'drive', connected:false, hrOn:false, speed:0, incReal:0, mainUnit:'kmh', dist:0, dplus:0, elapsed:0, hr:0,
   spdT:9.5, incT:4, grades:[], speeds:[], sessions:[], history:[], strava:null, pubId:null, shapePick:null, draft:null, buildErr:'', msg:'', msgColor:'#8A8F80',
@@ -819,7 +819,13 @@ function viewSettings(){ const sec=t=>'<div style="font:700 11px Barlow;letter-s
       '<button onclick="vfullStartToggle()" style="background:'+(on?ACC:'#23261e')+';border-radius:11px;padding:10px 14px;font:600 13px Barlow;color:'+(on?'#14170a':'#C3C8B8')+'">'+(on?'Oui':'Non')+'</button>')+
     '<div style="background:#191b18;border:1px solid #26291f;border-radius:16px;padding:13px 14px;margin-bottom:14px">'+
     '<div style="font:600 14.5px Barlow">Vue par défaut</div><div style="font:500 12px Barlow;color:#8A8F80;margin-bottom:10px">Infos affichées en plein écran, dans l\'ordre de l\'écran</div>'+hudEditor(hudDefault())+'</div>'+
-    sec('COMPTE')+cloudRow()+versionLine()+'</div></div>'; }
+    sec('COMPTE')+cloudRow()+
+    row('Exporter mes données','Fichier à importer dans Trail Planner Pro (page Tapis) : séances, historique et réglages','<button onclick="tmExport()" style="background:#23261e;border-radius:11px;padding:10px 14px;font:600 13px Barlow;color:#C3C8B8">Exporter</button>')+
+    versionLine()+'</div></div>'; }
+// Export pour la reprise dans Trail Planner Pro (21/10/2026) : { app, version, sessions, history, settings }
+function tmExport(){ let hud=null, hrz=null; try{ hud=JSON.parse(localStorage.getItem('tm_hud')||'null'); }catch(e){} hrz=hrzCfg();
+  const d={app:'threadmill-mate', version:APP_VERSION, exportedAt:new Date().toISOString(), sessions:st.sessions, history:st.history, settings:{unit:localStorage.getItem('tm_unit')||null, hud, hrz}};
+  dl(new Blob([JSON.stringify(d)],{type:'application/json'}), 'threadmill-mate-donnees.json'); }
 function versionLine(){ const cv=window.TM_CLOUD_VERSION, gv=window.TMGoPro&&TMGoPro.VERSION, stale=(cv&&cv!==APP_VERSION)||(gv&&gv!==APP_VERSION);
   return '<div style="font:500 11.5px Barlow;color:'+(stale?'#FF7A6B':'#4c5142')+';text-align:center;margin-top:6px;line-height:1.5">Version '+APP_VERSION+
     (stale?'<br>Fichiers d\'une ancienne version en mémoire (synchro '+(cv||'?')+', vidéo '+(gv||'?')+') : recharge la page avec Ctrl + F5.':'')+'</div>'; }
@@ -1133,6 +1139,6 @@ window.addEventListener('resize', placeVideo);
 render();
 loadKnown();
 </script>
-<script type="module" src="cloud.js?v=2026.10.19-6"></script>
+<script type="module" src="cloud.js?v=2026.10.21-1"></script>
 </body>
 </html>

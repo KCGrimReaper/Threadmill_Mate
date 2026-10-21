@@ -53,3 +53,7 @@ Synchro avec le vrai SDK : émulateurs Firebase (`firebase-tools`, Java présent
 FIT : relire le fichier produit avec le décodeur officiel `@garmin/fitsdk` (npm) : intégrité (CRC), session `running` / `virtualActivity`, distance = distance courue, positions = parcours. Publication Strava : intercepter `fetch` vers `/.netlify/functions/strava` pour lire exactement ce qui part (nom, description, fichier en base64).
 
 Pas de tests dans le dépôt. Avant de pousser : `node --check cloud.js gopro.js`, contrôle de la syntaxe du script d'`index.html`, et un passage dans Chromium (Playwright, `executablePath` vers le Chromium installé) avec un faux SDK Firebase injecté par `window.__tmFirebaseLibs` (lu par `cloud.js` à la place des imports gstatic) pour la synchro.
+
+## Reprise dans Trail Planner Pro (21/10/2026)
+
+L'app est reprise dans TPP (page `trailplannerpro.com/tapis/`, réservée au propriétaire, compte et base de TPP, Strava par le serveur TPP) : l'API Agreement de Strava interdit d'utiliser le même Client ID pour plusieurs applications. Réglages › Compte › « Exporter mes données » (`tmExport`) : fichier JSON { app, version, sessions, history, settings } à importer dans la page Tapis de TPP (Réglages › « Reprendre Threadmill Mate »). Ensuite : retirer Strava de cette app (fonction Netlify, relais `strava-tpp/` / `strava-renfo/`, entrée `tm:` du relais de TPP), à faire sur demande du propriétaire.
